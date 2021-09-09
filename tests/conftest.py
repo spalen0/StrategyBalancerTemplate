@@ -107,10 +107,11 @@ def gauge(pid, booster):
 def pool(token, curve_registry):
     zero_address = "0x0000000000000000000000000000000000000000"
     if curve_registry.get_pool_from_lp_token(token) == zero_address:
-        _poolAddress = token
+        poolAddress = token
     else:
         _poolAddress = curve_registry.get_pool_from_lp_token(token)
-    yield Contract(_poolAddress)
+        poolAddress = Contract(_poolAddress)
+    yield poolAddress
 
 
 @pytest.fixture(scope="module")
