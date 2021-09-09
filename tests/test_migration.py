@@ -5,7 +5,7 @@ import math
 
 
 def test_migration(
-    StrategyCurveibEUR,
+    StrategyCurvecvxCRV,
     gov,
     token,
     vault,
@@ -32,7 +32,7 @@ def test_migration(
 
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurveibEUR, vault, pool, gauge, strategy_name
+        StrategyCurvecvxCRV, vault, pool, gauge, strategy_name
     )
     total_old = strategy.estimatedTotalAssets()
 

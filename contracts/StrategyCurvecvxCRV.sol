@@ -12,10 +12,7 @@ import "@openzeppelin/contracts/math/Math.sol";
 import "./interfaces/curve.sol";
 import "./interfaces/yearn.sol";
 import {IUniswapV2Router02} from "./interfaces/uniswap.sol";
-import {
-    BaseStrategy,
-    StrategyParams
-} from "@yearnvaults/contracts/BaseStrategy.sol";
+import {BaseStrategy} from "@yearnvaults/contracts/BaseStrategy.sol";
 
 abstract contract StrategyCurveBase is BaseStrategy {
     using SafeERC20 for IERC20;
@@ -39,7 +36,6 @@ abstract contract StrategyCurveBase is BaseStrategy {
     // swap stuff
     address public constant sushiswap =
         0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F; // default to sushiswap, more CRV liquidity there
-    address[] public crvPath;
 
     IERC20 public constant crv =
         IERC20(0xD533a949740bb3306d119CC777fa900bA034cd52);
@@ -183,13 +179,9 @@ abstract contract StrategyCurveBase is BaseStrategy {
     }
 }
 
-contract StrategyCurveibEUR is StrategyCurveBase {
+contract StrategyCurvecvxCRV is StrategyCurveBase {
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
-
-    // swap stuff
-    IERC20 public constant ibeur =
-        IERC20(0x96E61422b6A9bA0e068B6c5ADd4fFaBC6a4aae27);
 
     /* ========== CONSTRUCTOR ========== */
 
@@ -207,7 +199,6 @@ contract StrategyCurveibEUR is StrategyCurveBase {
 
         // these are our standard approvals. want = Curve LP token
         want.approve(address(proxy), type(uint256).max);
-        crv.approve(sushiswap, type(uint256).max);
 
         // set our keepCRV
         keepCRV = 1000;
@@ -222,10 +213,7 @@ contract StrategyCurveibEUR is StrategyCurveBase {
         stratName = _name;
 
         // these are our approvals and path specific to this contract
-        ibeur.approve(address(curve), type(uint256).max);
-
-        // crv token path
-        crvPath = [address(crv), address(weth), address(ibeur)];
+        crv.approve(address(curve), type(uint256).max);
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
@@ -255,15 +243,9 @@ contract StrategyCurveibEUR is StrategyCurveBase {
                 }
                 uint256 _crvRemainder = _crvBalance.sub(_sendToVoter);
 
-                // sell the rest of our CRV
+                // deposit our remaining CRV to Curve
                 if (_crvRemainder > 0) {
-                    _sell(_crvRemainder);
-                }
-
-                // deposit our ibEUR to Curve if we have any
-                uint256 _ibeurBalance = ibeur.balanceOf(address(this));
-                if (_ibeurBalance > 0) {
-                    curve.add_liquidity([_ibeurBalance, 0], 0);
+                    curve.add_liquidity([_crvRemainder, 0], 0);
                 }
             }
         }
@@ -304,17 +286,6 @@ contract StrategyCurveibEUR is StrategyCurveBase {
         forceHarvestTriggerOnce = false;
     }
 
-    // Sells our harvested CRV into the selected output.
-    function _sell(uint256 _amount) internal {
-        IUniswapV2Router02(sushiswap).swapExactTokensForTokens(
-            _amount,
-            uint256(0),
-            crvPath,
-            address(this),
-            block.timestamp
-        );
-    }
-
     /* ========== KEEP3RS ========== */
 
     // convert our keeper's eth cost into want
@@ -328,20 +299,17 @@ contract StrategyCurveibEUR is StrategyCurveBase {
         if (_ethAmount > 0) {
             address[] memory ethPath = new address[](2);
             ethPath[0] = address(weth);
-            ethPath[1] = address(ibeur);
+            ethPath[1] = address(crv);
 
-            uint256[] memory _callCostInIbeurTuple =
+            uint256[] memory _callCostInCRVTuple =
                 IUniswapV2Router02(sushiswap).getAmountsOut(
                     _ethAmount,
                     ethPath
                 );
 
-            uint256 _callCostInIbeur =
-                _callCostInIbeurTuple[_callCostInIbeurTuple.length - 1];
-            callCostInWant = curve.calc_token_amount(
-                [_callCostInIbeur, 0],
-                true
-            );
+            uint256 _callCostInCRV =
+                _callCostInCRVTuple[_callCostInCRVTuple.length - 1];
+            callCostInWant = curve.calc_token_amount([_callCostInCRV, 0], true);
         }
         return callCostInWant;
     }

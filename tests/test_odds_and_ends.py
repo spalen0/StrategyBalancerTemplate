@@ -15,7 +15,7 @@ def test_odds_and_ends(
     strategist_ms,
     voter,
     gauge,
-    StrategyCurveibEUR,
+    StrategyCurvecvxCRV,
     amount,
     pool,
     strategy_name,
@@ -53,7 +53,7 @@ def test_odds_and_ends(
     # we can try to migrate too, lol
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurveibEUR, vault, pool, gauge, strategy_name
+        StrategyCurvecvxCRV, vault, pool, gauge, strategy_name
     )
     total_old = strategy.estimatedTotalAssets()
 
@@ -109,7 +109,7 @@ def test_odds_and_ends_2(
     strategist_ms,
     voter,
     gauge,
-    StrategyCurveibEUR,
+    StrategyCurvecvxCRV,
     amount,
 ):
 
@@ -139,7 +139,7 @@ def test_odds_and_ends_2(
 
 
 def test_odds_and_ends_migration(
-    StrategyCurveibEUR,
+    StrategyCurvecvxCRV,
     gov,
     token,
     vault,
@@ -165,7 +165,7 @@ def test_odds_and_ends_migration(
 
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurveibEUR, vault, pool, gauge, strategy_name
+        StrategyCurvecvxCRV, vault, pool, gauge, strategy_name
     )
     total_old = strategy.estimatedTotalAssets()
 
@@ -266,7 +266,7 @@ def test_odds_and_ends_liquidatePosition(
 
     # Display estimated APR
     print(
-        "\nEstimated ibEUR APR: ",
+        "\nEstimated cvxCRV APR: ",
         "{:.2%}".format(
             ((new_assets - old_assets) * (365)) / (strategy.estimatedTotalAssets())
         ),
@@ -368,7 +368,7 @@ def test_weird_reverts_and_trigger(
     strategy,
     chain,
     strategist_ms,
-    StrategyCurveibEUR,
+    StrategyCurvecvxCRV,
     other_vault_strategy,
     amount,
 ):

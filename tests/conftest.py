@@ -17,8 +17,8 @@ def isolation(fn_isolation):
 @pytest.fixture(scope="module")
 def whale(accounts):
     # Totally in it for the tech
-    # Update this with a large holder of your want token (andre, holding some ibEUR LPs)
-    whale = accounts.at("0x2D407dDb06311396fE14D4b49da5F0471447d45C", force=True)
+    # Update this with a large holder of your want token (EOA holding some cvxCRV LPs)
+    whale = accounts.at("0xC16414AC1fedfDAC4F8A09674D994e1BbB9d7113", force=True)
     yield whale
 
 
@@ -32,7 +32,7 @@ def amount():
 # this is the name we want to give our strategy
 @pytest.fixture(scope="module")
 def strategy_name():
-    strategy_name = "StrategyCurveibEUR"
+    strategy_name = "StrategyCurvecvxCRV"
     yield strategy_name
 
 
@@ -90,7 +90,7 @@ def farmed():
 @pytest.fixture(scope="module")
 def token():
     # this should be the address of the ERC-20 used by the strategy/vault
-    token_address = "0x19b080FE1ffA0553469D20Ca36219F17Fcf03859"
+    token_address = "0x9D0464996170c6B9e75eED71c68B99dDEDf279e8"
     yield Contract(token_address)
 
 
@@ -98,7 +98,7 @@ def token():
 @pytest.fixture(scope="module")
 def gauge():
     # this should be the address of the convex deposit token
-    gauge = "0x99fb76F75501039089AAC8f20f487bf84E51d76F"
+    gauge = "0x903dA6213a5A12B61c821598154EfAd98C3B20E4"
     yield Contract(gauge)
 
 
@@ -194,7 +194,7 @@ def vault(pm, gov, rewards, guardian, management, token, chain):
 # replace the first value with the name of your strategy
 @pytest.fixture(scope="function")
 def strategy(
-    StrategyCurveibEUR,
+    StrategyCurvecvxCRV,
     strategist,
     keeper,
     vault,
@@ -209,7 +209,7 @@ def strategy(
     gauge,
 ):
     # parameters for this are: strategy, vault, max deposit, minTimePerInvest, slippage protection (10000 = 100% slippage allowed),
-    strategy = strategist.deploy(StrategyCurveibEUR, vault, pool, gauge, strategy_name)
+    strategy = strategist.deploy(StrategyCurvecvxCRV, vault, pool, gauge, strategy_name)
     strategy.setKeeper(keeper, {"from": gov})
     # set our management fee to zero so it doesn't mess with our profit checking
     vault.setManagementFee(0, {"from": gov})
