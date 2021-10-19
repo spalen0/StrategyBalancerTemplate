@@ -18,6 +18,29 @@ interface IBaseFee {
     function basefee_global() external view returns (uint256);
 }
 
+interface IUniV3 {
+    struct ExactInputParams {
+        bytes path;
+        address recipient;
+        uint256 deadline;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+    }
+
+    function exactInput(ExactInputParams calldata params)
+        external
+        payable
+        returns (uint256 amountOut);
+}
+
+interface IOracle {
+    function ethToAsset(
+        uint256 _ethAmountIn,
+        address _tokenOut,
+        uint32 _twapPeriod
+    ) external view returns (uint256 amountOut);
+}
+
 abstract contract StrategyCurveBase is BaseStrategy {
     using SafeERC20 for IERC20;
     using Address for address;
@@ -160,12 +183,22 @@ abstract contract StrategyCurveBase is BaseStrategy {
     }
 }
 
-contract StrategyCurvealETH is StrategyCurveBase {
+contract StrategyCurveEURN is StrategyCurveBase {
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
 
     IBaseFee public _baseFeeOracle; // ******* REMOVE THIS AFTER TESTING *******
     uint256 public maxGasPrice; // this is the max gas price we want our keepers to pay for harvests/tends in gwei
+
+    // Uniswap stuff
+    IOracle public constant oracle =
+        IOracle(0x0F1f5A87f99f0918e6C81F16E59F3518698221Ff); // this is only needed for strats that use uniV3 for swaps
+    address public constant uniswapv3 =
+        0xE592427A0AEce92De3Edee1F18E0157C05861564;
+    IERC20 public constant usdt =
+        IERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7);
+    IERC20 public constant eurt =
+        IERC20(0xC581b735A1688071A1746c968e0798D642EDE491);
 
     /* ========== CONSTRUCTOR ========== */
 
@@ -196,6 +229,10 @@ contract StrategyCurvealETH is StrategyCurveBase {
 
         // set our strategy's name
         stratName = _name;
+
+        // these are our approvals and path specific to this contract
+        eurt.approve(address(curve), type(uint256).max);
+        weth.approve(uniswapv3, type(uint256).max);
 
         // set our max gas price
         maxGasPrice = 100 * 1e9;
@@ -230,13 +267,19 @@ contract StrategyCurvealETH is StrategyCurveBase {
 
                 // sell the rest of our CRV
                 if (_crvRemainder > 0) {
-                    _sellForEth(_crvRemainder);
+                    _sell(_crvRemainder);
                 }
 
-                // deposit our ETH to the curve pool
-                uint256 ethBalance = address(this).balance;
-                if (ethBalance > 0) {
-                    curve.add_liquidity{value: ethBalance}([ethBalance, 0], 0);
+                // convert our WETH to EURt, but don't want to swap dust
+                uint256 _wethBalance = weth.balanceOf(address(this));
+                uint256 _eurtBalance = 0;
+                if (_wethBalance > 0) {
+                    _eurtBalance = _sellWethForEurt(_wethBalance);
+                }
+
+                // deposit our EURt to Curve if we have any
+                if (_eurtBalance > 0) {
+                    curve.add_liquidity([0, _eurtBalance], 0);
                 }
             }
         }
@@ -277,18 +320,39 @@ contract StrategyCurvealETH is StrategyCurveBase {
         forceHarvestTriggerOnce = false;
     }
 
-    // sell our CRV for ETH
-    function _sellForEth(uint256 _amount) internal {
-        address[] memory ethPath = new address[](2);
-        ethPath[0] = address(crv);
-        ethPath[1] = address(weth);
-        IUniswapV2Router02(sushiswap).swapExactTokensForETH(
+    // Sells our harvested CRV into the selected output.
+    function _sell(uint256 _amount) internal {
+        address[] memory crvPath = new address[](2);
+        crvPath[0] = address(crv);
+        crvPath[1] = address(weth);
+        IUniswapV2Router02(sushiswap).swapExactTokensForTokens(
             _amount,
             uint256(0),
-            ethPath,
+            crvPath,
             address(this),
             block.timestamp
         );
+    }
+
+    // Sells our WETH for EURt
+    function _sellWethForEurt(uint256 _amount) internal returns (uint256) {
+        uint256 _eurtOutput =
+            IUniV3(uniswapv3).exactInput(
+                IUniV3.ExactInputParams(
+                    abi.encodePacked(
+                        address(weth),
+                        uint24(500),
+                        address(usdt),
+                        uint24(500),
+                        address(eurt)
+                    ),
+                    address(this),
+                    block.timestamp,
+                    _amount,
+                    uint256(1)
+                )
+            );
+        return _eurtOutput;
     }
 
     /* ========== KEEP3RS ========== */
@@ -331,13 +395,12 @@ contract StrategyCurvealETH is StrategyCurveBase {
     {
         uint256 callCostInWant;
         if (_ethAmount > 0) {
-            callCostInWant = curve.calc_token_amount([_ethAmount, 0], true);
+            uint256 callCostInEur =
+                oracle.ethToAsset(_ethAmount, address(eurt), 1800);
+            callCostInWant = curve.calc_token_amount([0, callCostInEur], true);
         }
         return callCostInWant;
     }
-
-    // enable ability to recieve ETH
-    receive() external payable {}
 
     /* ========== SETTERS ========== */
 

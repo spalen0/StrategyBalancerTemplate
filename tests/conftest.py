@@ -15,25 +15,30 @@ def isolation(fn_isolation):
 
 
 @pytest.fixture(scope="module")
-def whale(accounts):
+def whale(accounts, token):
     # Totally in it for the tech
-    # Update this with a large holder of your want token (EOA holding some alETH LPs)
-    whale = accounts.at("0x6F59DdBDf6a99Cd6c9d215d88a7362231B57D207", force=True)
+    # Update this with a large holder of your want token (EOA holding some EURT, deposit it to the LP)
+    whale = accounts.at("0x919fb7950488C1dCaFB5E6D17f003de0cEc2f1d8", force=True)
+    eurt = Contract("0xC581b735A1688071A1746c968e0798D642EDE491")
+    eurt.approve(token, 0, {"from": whale})
+    eurt.approve(token, 1000000e6, {"from": whale})
+    token.add_liquidity([0, 10000e6], 0, {"from": whale})
     yield whale
 
 
 # this is the amount of funds we have our whale deposit. adjust this as needed based on their wallet balance
 @pytest.fixture(scope="module")
 def amount():
-    amount = 2e18
+    amount = 2000e18
     yield amount
 
 
 # this is the name we want to give our strategy
 @pytest.fixture(scope="module")
 def strategy_name():
-    strategy_name = "StrategyCurvealETH"
+    strategy_name = "StrategyCurveEURN"
     yield strategy_name
+
 
 # if we don't use PID, we need to manually set these too
 
@@ -41,7 +46,7 @@ def strategy_name():
 @pytest.fixture(scope="module")
 def token():
     # this should be the address of the ERC-20 used by the strategy/vault
-    token_address = "0xC4C319E2D4d66CcA4464C0c2B32c9Bd23ebe784e"
+    token_address = "0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a"
     yield Contract(token_address)
 
 
@@ -49,8 +54,9 @@ def token():
 @pytest.fixture(scope="module")
 def gauge():
     # this should be the address of the gauge we're depositing to
-    gauge = "0x12dCD9E8D1577b5E4F066d8e7D404404Ef045342"
+    gauge = "0xD9277b0D007464eFF133622eC0d42081c93Cef02"
     yield Contract(gauge)
+
 
 # Only worry about changing things above this line, unless you want to make changes to the vault or strategy.
 # ----------------------------------------------------------------------- #
@@ -100,6 +106,7 @@ def healthCheck():
 def farmed():
     # this is the token that we are farming and selling for more of our want.
     yield Contract("0xD533a949740bb3306d119CC777fa900bA034cd52")
+
 
 # curve deposit pool
 @pytest.fixture(scope="module")
@@ -193,7 +200,7 @@ def vault(pm, gov, rewards, guardian, management, token, chain):
 # replace the first value with the name of your strategy
 @pytest.fixture(scope="function")
 def strategy(
-    StrategyCurvealETH,
+    StrategyCurveEURN,
     strategist,
     keeper,
     vault,
@@ -208,7 +215,7 @@ def strategy(
     gauge,
 ):
     # parameters for this are: strategy, vault, max deposit, minTimePerInvest, slippage protection (10000 = 100% slippage allowed),
-    strategy = strategist.deploy(StrategyCurvealETH, vault, pool, gauge, strategy_name)
+    strategy = strategist.deploy(StrategyCurveEURN, vault, pool, gauge, strategy_name)
     strategy.setKeeper(keeper, {"from": gov})
     strategy.setDebtThreshold(0, {"from": gov})
     # set our management fee to zero so it doesn't mess with our profit checking
@@ -222,6 +229,7 @@ def strategy(
     strategy.harvest({"from": gov})
     chain.sleep(1)
     yield strategy
+
 
 @pytest.fixture(scope="module")
 def dummy_gas_oracle(strategist, dummyBasefee):
