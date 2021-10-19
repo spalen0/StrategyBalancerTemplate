@@ -14,6 +14,10 @@ import "./interfaces/yearn.sol";
 import {IUniswapV2Router02} from "./interfaces/uniswap.sol";
 import {BaseStrategy} from "@yearnvaults/contracts/BaseStrategy.sol";
 
+interface IBaseFee {
+    function basefee_global() external view returns (uint256);
+}
+
 abstract contract StrategyCurveBase is BaseStrategy {
     using SafeERC20 for IERC20;
     using Address for address;
@@ -132,27 +136,6 @@ abstract contract StrategyCurveBase is BaseStrategy {
         returns (address[] memory)
     {}
 
-    /* ========== KEEP3RS ========== */
-
-    function harvestTrigger(uint256 callCostinEth)
-        public
-        view
-        override
-        returns (bool)
-    {
-        // trigger if we want to manually harvest
-        if (forceHarvestTriggerOnce) {
-            return true;
-        }
-
-        // Should not trigger if strategy is not active (no assets and no debtRatio). This means we don't need to adjust keeper job.
-        if (!isActive()) {
-            return false;
-        }
-
-        return super.harvestTrigger(callCostinEth);
-    }
-
     /* ========== SETTERS ========== */
 
     // These functions are useful for setting parameters of the strategy that may need to be adjusted.
@@ -177,9 +160,12 @@ abstract contract StrategyCurveBase is BaseStrategy {
     }
 }
 
-contract StrategyCurvecvxCRV is StrategyCurveBase {
+contract StrategyCurvealETH is StrategyCurveBase {
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
+
+    IBaseFee public _baseFeeOracle; // ******* REMOVE THIS AFTER TESTING *******
+    uint256 public maxGasPrice; // this is the max gas price we want our keepers to pay for harvests/tends in gwei
 
     /* ========== CONSTRUCTOR ========== */
 
@@ -191,12 +177,13 @@ contract StrategyCurvecvxCRV is StrategyCurveBase {
     ) public StrategyCurveBase(_vault) {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 7 days; // 7 days in seconds
-        debtThreshold = 5 * 1e18; // we shouldn't ever have debt, but set a bit of a buffer
-        profitFactor = 10_000; // in this strategy, profitFactor is only used for telling keep3rs when to move funds from vault to strategy
+        debtThreshold = 1 * 1e6; // we shouldn't ever have debt, but set a bit of a buffer
+        profitFactor = 1_000_000; // in this strategy, profitFactor is only used for telling keep3rs when to move funds from vault to strategy
         healthCheck = 0xDDCea799fF1699e98EDF118e0629A974Df7DF012; // health.ychad.eth
 
         // these are our standard approvals. want = Curve LP token
         want.approve(address(proxy), type(uint256).max);
+        crv.approve(sushiswap, type(uint256).max);
 
         // set our keepCRV
         keepCRV = 1000;
@@ -210,8 +197,8 @@ contract StrategyCurvecvxCRV is StrategyCurveBase {
         // set our strategy's name
         stratName = _name;
 
-        // these are our approvals and path specific to this contract
-        crv.approve(address(curve), type(uint256).max);
+        // set our max gas price
+        maxGasPrice = 100 * 1e9;
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
@@ -241,9 +228,15 @@ contract StrategyCurvecvxCRV is StrategyCurveBase {
                 }
                 uint256 _crvRemainder = _crvBalance.sub(_sendToVoter);
 
-                // deposit our remaining CRV to Curve
+                // sell the rest of our CRV
                 if (_crvRemainder > 0) {
-                    curve.add_liquidity([_crvRemainder, 0], 0);
+                    _sellForEth(_crvRemainder);
+                }
+
+                // deposit our ETH to the curve pool
+                uint256 ethBalance = address(this).balance;
+                if (ethBalance > 0) {
+                    curve.add_liquidity{value: ethBalance}([ethBalance, 0], 0);
                 }
             }
         }
@@ -284,7 +277,50 @@ contract StrategyCurvecvxCRV is StrategyCurveBase {
         forceHarvestTriggerOnce = false;
     }
 
+    // sell our CRV for ETH
+    function _sellForEth(uint256 _amount) internal {
+        address[] memory ethPath = new address[](2);
+        ethPath[0] = address(crv);
+        ethPath[1] = address(weth);
+        IUniswapV2Router02(sushiswap).swapExactTokensForETH(
+            _amount,
+            uint256(0),
+            ethPath,
+            address(this),
+            block.timestamp
+        );
+    }
+
     /* ========== KEEP3RS ========== */
+
+    function harvestTrigger(uint256 callCostinEth)
+        public
+        view
+        override
+        returns (bool)
+    {
+        // trigger if we want to manually harvest
+        if (forceHarvestTriggerOnce) {
+            return true;
+        }
+
+        // Should not trigger if strategy is not active (no assets and no debtRatio). This means we don't need to adjust keeper job.
+        if (!isActive()) {
+            return false;
+        }
+
+        // check if the base fee gas price is higher than we allow
+        if (readBaseFee() > maxGasPrice) {
+            return false;
+        }
+
+        return super.harvestTrigger(callCostinEth);
+    }
+
+    function readBaseFee() internal view returns (uint256 baseFee) {
+        // IBaseFee _baseFeeOracle = IBaseFee(0xf8d0Ec04e94296773cE20eFbeeA82e76220cD549); ******* UNCOMMENT THIS AFTER TESTING *******
+        return _baseFeeOracle.basefee_global();
+    }
 
     // convert our keeper's eth cost into want
     function ethToWant(uint256 _ethAmount)
@@ -295,20 +331,23 @@ contract StrategyCurvecvxCRV is StrategyCurveBase {
     {
         uint256 callCostInWant;
         if (_ethAmount > 0) {
-            address[] memory ethPath = new address[](2);
-            ethPath[0] = address(weth);
-            ethPath[1] = address(crv);
-
-            uint256[] memory _callCostInCRVTuple =
-                IUniswapV2Router02(sushiswap).getAmountsOut(
-                    _ethAmount,
-                    ethPath
-                );
-
-            uint256 _callCostInCRV =
-                _callCostInCRVTuple[_callCostInCRVTuple.length - 1];
-            callCostInWant = curve.calc_token_amount([_callCostInCRV, 0], true);
+            callCostInWant = curve.calc_token_amount([_ethAmount, 0], true);
         }
         return callCostInWant;
+    }
+
+    // enable ability to recieve ETH
+    receive() external payable {}
+
+    /* ========== SETTERS ========== */
+
+    // set the maximum gas price we want to pay for a harvest/tend in gwei
+    function setGasPrice(uint256 _maxGasPrice) external onlyAuthorized {
+        maxGasPrice = _maxGasPrice.mul(1e9);
+    }
+
+    // set the maximum gas price we want to pay for a harvest/tend in gwei, ******* REMOVE THIS AFTER TESTING *******
+    function setGasOracle(address _gasOracle) external onlyAuthorized {
+        _baseFeeOracle = IBaseFee(_gasOracle);
     }
 }

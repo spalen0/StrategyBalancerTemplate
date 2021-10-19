@@ -15,10 +15,11 @@ def test_odds_and_ends(
     strategist_ms,
     voter,
     gauge,
-    StrategyCurvecvxCRV,
+    StrategyCurvealETH,
     amount,
     pool,
     strategy_name,
+    dummy_gas_oracle,
 ):
 
     ## deposit to the vault after approving. turn off health check before each harvest since we're doing weird shit
@@ -38,6 +39,7 @@ def test_odds_and_ends(
     vault.approve(strategist_ms, 1e25, {"from": whale})
 
     # we want to check when we have a loss
+    strategy.setGasOracle(dummy_gas_oracle, {"from": gov})
     tx = strategy.harvestTrigger(0, {"from": gov})
     print("\nShould we harvest? Should be true.", tx)
     assert tx == True
@@ -53,7 +55,7 @@ def test_odds_and_ends(
     # we can try to migrate too, lol
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurvecvxCRV, vault, pool, gauge, strategy_name
+        StrategyCurvealETH, vault, pool, gauge, strategy_name
     )
     total_old = strategy.estimatedTotalAssets()
 
@@ -109,7 +111,7 @@ def test_odds_and_ends_2(
     strategist_ms,
     voter,
     gauge,
-    StrategyCurvecvxCRV,
+    StrategyCurvealETH,
     amount,
 ):
 
@@ -139,7 +141,7 @@ def test_odds_and_ends_2(
 
 
 def test_odds_and_ends_migration(
-    StrategyCurvecvxCRV,
+    StrategyCurvealETH,
     gov,
     token,
     vault,
@@ -154,6 +156,7 @@ def test_odds_and_ends_migration(
     pool,
     strategy_name,
     gauge,
+    dummy_gas_oracle,
 ):
 
     ## deposit to the vault after approving
@@ -165,11 +168,12 @@ def test_odds_and_ends_migration(
 
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurvecvxCRV, vault, pool, gauge, strategy_name
+        StrategyCurvealETH, vault, pool, gauge, strategy_name
     )
     total_old = strategy.estimatedTotalAssets()
 
     # can we harvest an unactivated strategy? should be no
+    new_strategy.setGasOracle(dummy_gas_oracle, {"from": gov})
     tx = new_strategy.harvestTrigger(0, {"from": gov})
     print("\nShould we harvest? Should be False.", tx)
     assert tx == False
@@ -266,7 +270,7 @@ def test_odds_and_ends_liquidatePosition(
 
     # Display estimated APR
     print(
-        "\nEstimated cvxCRV APR: ",
+        "\nEstimated alETH APR: ",
         "{:.2%}".format(
             ((new_assets - old_assets) * (365)) / (strategy.estimatedTotalAssets())
         ),
@@ -356,7 +360,7 @@ def test_odds_and_ends_liquidate_rekt(
     assert strategy.estimatedTotalAssets() == 0
 
     # we can also withdraw from an empty vault as well, but make sure we're okay with losing 100%
-    vault.withdraw(10e18, whale, 10000, {"from": whale})
+    vault.withdraw(amount, whale, 10000, {"from": whale})
 
 
 def test_weird_reverts_and_trigger(
@@ -368,7 +372,7 @@ def test_weird_reverts_and_trigger(
     strategy,
     chain,
     strategist_ms,
-    StrategyCurvecvxCRV,
+    StrategyCurvealETH,
     other_vault_strategy,
     amount,
 ):
@@ -402,6 +406,7 @@ def test_odds_and_ends_inactive_strat(
     strategist_ms,
     voter,
     amount,
+    dummy_gas_oracle,
 ):
     ## deposit to the vault after approving
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
@@ -417,6 +422,56 @@ def test_odds_and_ends_inactive_strat(
     strategy.harvest({"from": gov})
 
     # we shouldn't harvest empty strategies
+    strategy.setGasOracle(dummy_gas_oracle, {"from": gov})
     tx = strategy.harvestTrigger(0, {"from": gov})
     print("\nShould we harvest? Should be false.", tx)
     assert tx == False
+
+
+# this one tests if we don't have any CRV to send to voter or any left over after sending
+def test_odds_and_ends_weird_amounts(
+    gov,
+    token,
+    vault,
+    strategist,
+    whale,
+    strategy,
+    chain,
+    strategist_ms,
+    voter,
+    amount,
+):
+
+    ## deposit to the vault after approving
+    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    vault.deposit(amount, {"from": whale})
+    chain.sleep(1)
+    strategy.tend({"from": gov})
+    chain.mine(1)
+    chain.sleep(361)
+    strategy.harvest({"from": gov})
+    chain.sleep(1)
+
+    # sleep for an hour to get some profit
+    chain.sleep(3600)
+    chain.mine(1)
+
+    # take 100% of our CRV to the voter
+    strategy.setKeepCRV(10000, {"from": gov})
+    strategy.tend({"from": gov})
+    chain.mine(1)
+    chain.sleep(361)
+    strategy.harvest({"from": gov})
+    chain.sleep(1)
+
+    # sleep for an hour to get some profit
+    chain.sleep(3600)
+    chain.mine(1)
+
+    # take 0% of our CRV to the voter
+    strategy.setKeepCRV(0, {"from": gov})
+    strategy.tend({"from": gov})
+    chain.mine(1)
+    chain.sleep(361)
+    strategy.harvest({"from": gov})
+    chain.sleep(1)
