@@ -17,26 +17,22 @@ def isolation(fn_isolation):
 @pytest.fixture(scope="module")
 def whale(accounts, token):
     # Totally in it for the tech
-    # Update this with a large holder of your want token (EOA holding some EURT, deposit it to the LP)
-    whale = accounts.at("0x919fb7950488C1dCaFB5E6D17f003de0cEc2f1d8", force=True)
-    eurt = Contract("0xC581b735A1688071A1746c968e0798D642EDE491")
-    eurt.approve(token, 0, {"from": whale})
-    eurt.approve(token, 1000000e6, {"from": whale})
-    token.add_liquidity([0, 10000e6], 0, {"from": whale})
+    # Update this with a large holder of your want token (Daniele's EOA holding this LP)
+    whale = accounts.at("0x8A7f7C5b556B1298a74c0e89df46Eba117A2F6c1", force=True)
     yield whale
 
 
 # this is the amount of funds we have our whale deposit. adjust this as needed based on their wallet balance
 @pytest.fixture(scope="module")
 def amount():
-    amount = 2000e18
+    amount = 20000e18
     yield amount
 
 
 # this is the name we want to give our strategy
 @pytest.fixture(scope="module")
 def strategy_name():
-    strategy_name = "StrategyCurveEURN"
+    strategy_name = "StrategyCurveMIMUST"
     yield strategy_name
 
 
@@ -46,7 +42,7 @@ def strategy_name():
 @pytest.fixture(scope="module")
 def token():
     # this should be the address of the ERC-20 used by the strategy/vault
-    token_address = "0x3Fb78e61784C9c637D560eDE23Ad57CA1294c14a"
+    token_address = "0x55A8a39bc9694714E2874c1ce77aa1E599461E18"
     yield Contract(token_address)
 
 
@@ -54,7 +50,7 @@ def token():
 @pytest.fixture(scope="module")
 def gauge():
     # this should be the address of the gauge we're depositing to
-    gauge = "0xD9277b0D007464eFF133622eC0d42081c93Cef02"
+    gauge = "0xB518f5e3242393d4eC792BD3f44946A3b98d0E48"
     yield Contract(gauge)
 
 
@@ -200,7 +196,7 @@ def vault(pm, gov, rewards, guardian, management, token, chain):
 # replace the first value with the name of your strategy
 @pytest.fixture(scope="function")
 def strategy(
-    StrategyCurveEURN,
+    StrategyCurveMIMUST,
     strategist,
     keeper,
     vault,
@@ -215,7 +211,7 @@ def strategy(
     gauge,
 ):
     # parameters for this are: strategy, vault, max deposit, minTimePerInvest, slippage protection (10000 = 100% slippage allowed),
-    strategy = strategist.deploy(StrategyCurveEURN, vault, pool, gauge, strategy_name)
+    strategy = strategist.deploy(StrategyCurveMIMUST, vault, pool, gauge, strategy_name)
     strategy.setKeeper(keeper, {"from": gov})
     strategy.setDebtThreshold(0, {"from": gov})
     # set our management fee to zero so it doesn't mess with our profit checking
