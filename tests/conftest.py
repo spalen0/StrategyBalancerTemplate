@@ -35,6 +35,7 @@ def strategy_name():
     strategy_name = "StrategyCurvealETH"
     yield strategy_name
 
+
 # if we don't use PID, we need to manually set these too
 
 # Define relevant tokens and contracts in this section
@@ -51,6 +52,7 @@ def gauge():
     # this should be the address of the gauge we're depositing to
     gauge = "0x12dCD9E8D1577b5E4F066d8e7D404404Ef045342"
     yield Contract(gauge)
+
 
 # Only worry about changing things above this line, unless you want to make changes to the vault or strategy.
 # ----------------------------------------------------------------------- #
@@ -100,6 +102,7 @@ def healthCheck():
 def farmed():
     # this is the token that we are farming and selling for more of our want.
     yield Contract("0xD533a949740bb3306d119CC777fa900bA034cd52")
+
 
 # curve deposit pool
 @pytest.fixture(scope="module")
@@ -222,6 +225,7 @@ def strategy(
     strategy.harvest({"from": gov})
     chain.sleep(1)
     yield strategy
+
 
 @pytest.fixture(scope="module")
 def dummy_gas_oracle(strategist, dummyBasefee):
