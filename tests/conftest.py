@@ -18,7 +18,7 @@ def isolation(fn_isolation):
 def whale(accounts):
     # Totally in it for the tech
     # Update this with a large holder of your want token (EOA holding some alETH LPs)
-    whale = accounts.at("0x6F59DdBDf6a99Cd6c9d215d88a7362231B57D207", force=True)
+    whale = accounts.at("0xe77aDDb3596F6b4E5C6BCD1Be925eDCD4392028b", force=True)
     yield whale
 
 
