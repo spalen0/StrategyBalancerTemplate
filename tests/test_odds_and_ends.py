@@ -445,10 +445,6 @@ def test_odds_and_ends_weird_amounts(
     ## deposit to the vault after approving
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
-    chain.sleep(1)
-    strategy.tend({"from": gov})
-    chain.mine(1)
-    chain.sleep(361)
     strategy.harvest({"from": gov})
     chain.sleep(1)
 
@@ -458,9 +454,6 @@ def test_odds_and_ends_weird_amounts(
 
     # take 100% of our CRV to the voter
     strategy.setKeepCRV(10000, {"from": gov})
-    strategy.tend({"from": gov})
-    chain.mine(1)
-    chain.sleep(361)
     strategy.harvest({"from": gov})
     chain.sleep(1)
 
@@ -470,8 +463,5 @@ def test_odds_and_ends_weird_amounts(
 
     # take 0% of our CRV to the voter
     strategy.setKeepCRV(0, {"from": gov})
-    strategy.tend({"from": gov})
-    chain.mine(1)
-    chain.sleep(361)
     strategy.harvest({"from": gov})
     chain.sleep(1)
