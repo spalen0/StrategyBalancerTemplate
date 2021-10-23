@@ -395,9 +395,9 @@ contract StrategyCurveMIMUST is StrategyCurveBase {
     {
         uint256 callCostInWant;
         if (_ethAmount > 0) {
-            uint256 callCostInEur =
+            uint256 callCostInUst =
                 oracle.ethToAsset(_ethAmount, address(ust), 1800);
-            callCostInWant = curve.calc_token_amount([0, callCostInEur], true);
+            callCostInWant = curve.calc_token_amount([0, callCostInUst], true);
         }
         return callCostInWant;
     }
