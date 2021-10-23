@@ -57,16 +57,16 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
     // keepCRV stuff
     uint256 public keepCRV; // the percentage of CRV we re-lock for boost (in basis points)
-    uint256 public constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in bips
+    uint256 internal constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in bips
     address public constant voter = 0xF147b8125d2ef93FB6965Db97D6746952a133934; // Yearn's veCRV voter
 
     // swap stuff
-    address public constant sushiswap =
+    address internal constant sushiswap =
         0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F; // default to sushiswap, more CRV liquidity there
 
-    IERC20 public constant crv =
+    IERC20 internal constant crv =
         IERC20(0xD533a949740bb3306d119CC777fa900bA034cd52);
-    IERC20 public constant weth =
+    IERC20 internal constant weth =
         IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     bool internal forceHarvestTriggerOnce; // only set this to true externally when we want to trigger our keepers to harvest for us
@@ -187,17 +187,16 @@ contract StrategyCurveMIMUST is StrategyCurveBase {
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
 
-    IBaseFee public _baseFeeOracle; // ******* REMOVE THIS AFTER TESTING *******
     uint256 public maxGasPrice; // this is the max gas price we want our keepers to pay for harvests/tends in gwei
 
     // Uniswap stuff
-    IOracle public constant oracle =
+    IOracle internal constant oracle =
         IOracle(0x0F1f5A87f99f0918e6C81F16E59F3518698221Ff); // this is only needed for strats that use uniV3 for swaps
-    address public constant uniswapv3 =
+    address internal constant uniswapv3 =
         0xE592427A0AEce92De3Edee1F18E0157C05861564;
-    IERC20 public constant usdc =
+    IERC20 internal constant usdc =
         IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
-    IERC20 public constant ust =
+    IERC20 internal constant ust =
         IERC20(0xa47c8bf37f92aBed4A126BDA807A7b7498661acD);
 
     /* ========== CONSTRUCTOR ========== */
@@ -382,7 +381,8 @@ contract StrategyCurveMIMUST is StrategyCurveBase {
     }
 
     function readBaseFee() internal view returns (uint256 baseFee) {
-        // IBaseFee _baseFeeOracle = IBaseFee(0xf8d0Ec04e94296773cE20eFbeeA82e76220cD549); ******* UNCOMMENT THIS AFTER TESTING *******
+        IBaseFee _baseFeeOracle =
+            IBaseFee(0xf8d0Ec04e94296773cE20eFbeeA82e76220cD549);
         return _baseFeeOracle.basefee_global();
     }
 
@@ -407,10 +407,5 @@ contract StrategyCurveMIMUST is StrategyCurveBase {
     // set the maximum gas price we want to pay for a harvest/tend in gwei
     function setGasPrice(uint256 _maxGasPrice) external onlyAuthorized {
         maxGasPrice = _maxGasPrice.mul(1e9);
-    }
-
-    // set the maximum gas price we want to pay for a harvest/tend in gwei, ******* REMOVE THIS AFTER TESTING *******
-    function setGasOracle(address _gasOracle) external onlyAuthorized {
-        _baseFeeOracle = IBaseFee(_gasOracle);
     }
 }
