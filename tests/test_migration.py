@@ -5,7 +5,7 @@ import math
 
 
 def test_migration(
-    StrategyCurve3CrvRewardsClonable,
+    StrategyCurveEURTUSD,
     gov,
     token,
     vault,
@@ -34,7 +34,7 @@ def test_migration(
 
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurve3CrvRewardsClonable,
+        StrategyCurveEURTUSD,
         vault,
         pool,
         gauge,
