@@ -12,7 +12,7 @@ def test_cloning(
     keeper,
     rewards,
     chain,
-    StrategyCurve3CrvRewardsClonable,
+    StrategyCurveSBTCRewardsClonable,
     voter,
     proxy,
     pid,
@@ -39,7 +39,7 @@ def test_cloning(
         )
 
     ## clone our strategy
-    tx = strategy.cloneCurve3CrvRewards(
+    tx = strategy.cloneCurveSBTCRewards(
         vault,
         strategist,
         rewards,
@@ -51,7 +51,7 @@ def test_cloning(
         strategy_name,
         {"from": gov},
     )
-    newStrategy = StrategyCurve3CrvRewardsClonable.at(tx.return_value)
+    newStrategy = StrategyCurveSBTCRewardsClonable.at(tx.return_value)
 
     # Shouldn't be able to call initialize again
     with brownie.reverts():
@@ -70,7 +70,7 @@ def test_cloning(
 
     ## shouldn't be able to clone a clone
     with brownie.reverts():
-        newStrategy.cloneCurve3CrvRewards(
+        newStrategy.cloneCurveSBTCRewards(
             vault,
             strategist,
             rewards,
@@ -100,7 +100,7 @@ def test_cloning(
     before_pps = vault.pricePerShare()
     startingWhale = token.balanceOf(whale)
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
-    vault.deposit(1000e18, {"from": whale})
+    vault.deposit(amount, {"from": whale})
 
     # harvest, store asset amount
     tx = newStrategy.harvest({"from": gov})
@@ -125,7 +125,7 @@ def test_cloning(
 
     # Display estimated APR based on the two days before the pay out
     print(
-        "\nEstimated DAI APR: ",
+        "\nEstimated APR: ",
         "{:.2%}".format(
             ((new_assets_dai - old_assets_dai) * (365))
             / (newStrategy.estimatedTotalAssets())

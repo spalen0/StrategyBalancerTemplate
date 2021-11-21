@@ -21,6 +21,21 @@ interface IBaseFee {
     function basefee_global() external view returns (uint256);
 }
 
+interface IUniV3 {
+    struct ExactInputParams {
+        bytes path;
+        address recipient;
+        uint256 deadline;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+    }
+
+    function exactInput(ExactInputParams calldata params)
+        external
+        payable
+        returns (uint256 amountOut);
+}
+
 abstract contract StrategyCurveBase is BaseStrategy {
     using SafeERC20 for IERC20;
     using Address for address;
@@ -162,25 +177,26 @@ abstract contract StrategyCurveBase is BaseStrategy {
     }
 }
 
-contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
+contract StrategyCurveSBTCRewardsClonable is StrategyCurveBase {
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
 
     // Curve stuff
     address public curve; // This is our pool specific to this vault. Use it with zap contract to specify our correct pool.
     ICurveFi internal constant zapContract =
-        ICurveFi(0xA79828DF1850E8a3A3064576f380D90aECDD3359); // this is used for depositing to all 3Crv metapools
+        ICurveFi(0x7AbDBAf29929e7F8621B757D2a7c04d78d633834); // this is used for depositing to all 3Crv metapools
 
     uint256 public maxGasPrice; // this is the max gas price we want our keepers to pay for harvests/tends in gwei
 
-    // we use these to deposit to our curve pool
-    uint256 public optimal; // this is the optimal token to deposit back to our curve pool. 0 DAI, 1 USDC, 2 USDT
+    // swap stuff
+    address internal constant uniswapv3 =
+        address(0xE592427A0AEce92De3Edee1F18E0157C05861564);
     IERC20 internal constant usdt =
         IERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7);
-    IERC20 internal constant usdc =
-        IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
-    IERC20 internal constant dai =
-        IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
+    IERC20 internal constant wbtc =
+        IERC20(0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599);
+    uint24 public uniCrvFee; // this is equal to 1%, can change this later if a different path becomes more optimal
+    uint24 public uniWbtcFee; // this is equal to 0.05%, can change this later if a different path becomes more optimal
 
     // rewards token info. we can have more than 1 reward token but this is rare, so we don't include this in the template
     IERC20 public rewardsToken;
@@ -208,7 +224,7 @@ contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
     event Cloned(address indexed clone);
 
     // we use this to clone our original strategy to other vaults
-    function cloneCurve3CrvRewards(
+    function cloneCurveSBTCRewards(
         address _vault,
         address _strategist,
         address _rewards,
@@ -237,7 +253,7 @@ contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
             newStrategy := create(0, clone_code, 0x37)
         }
 
-        StrategyCurve3CrvRewardsClonable(newStrategy).initialize(
+        StrategyCurveSBTCRewardsClonable(newStrategy).initialize(
             _vault,
             _strategist,
             _rewards,
@@ -292,6 +308,8 @@ contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
         // these are our standard approvals. want = Curve LP token
         want.approve(address(proxy), type(uint256).max);
         crv.approve(sushiswap, type(uint256).max);
+        crv.approve(uniswapv3, type(uint256).max);
+        weth.approve(uniswapv3, type(uint256).max);
 
         // set our keepCRV
         keepCRV = 1000;
@@ -300,7 +318,7 @@ contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
         if (_hasRewards) {
             rewardsToken = IERC20(_rewardsToken);
             rewardsToken.approve(sushiswap, type(uint256).max);
-            rewardsPath = [address(rewardsToken), address(weth), address(dai)];
+            rewardsPath = [address(rewardsToken), address(weth)];
             hasRewards = true;
         }
 
@@ -314,15 +332,14 @@ contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
         stratName = _name;
 
         // these are our approvals and path specific to this contract
-        dai.approve(address(zapContract), type(uint256).max);
-        usdt.safeApprove(address(zapContract), type(uint256).max); // USDT requires safeApprove(), funky token
-        usdc.approve(address(zapContract), type(uint256).max);
-
-        // start off with dai
-        crvPath = [address(crv), address(weth), address(dai)];
+        wbtc.approve(address(zapContract), type(uint256).max);
 
         // set our max gas price
         maxGasPrice = 125 * 1e9;
+
+        // set our uniswap pool fees
+        uniCrvFee = 10000;
+        uniWbtcFee = 500;
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
@@ -352,11 +369,6 @@ contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
                 }
                 uint256 _crvRemainder = _crvBalance.sub(_sendToVoter);
 
-                // sell the rest of our CRV
-                if (_crvRemainder > 0) {
-                    _sell(_crvRemainder);
-                }
-
                 if (hasRewards) {
                     proxy.claimRewards(gauge, address(rewardsToken));
                     uint256 _rewardsBalance =
@@ -366,34 +378,19 @@ contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
                     }
                 }
 
+                // sell the rest of our CRV
+                if (_crvRemainder > 0) {
+                    _sellCrv(_crvRemainder);
+                }
+
                 // deposit our balance to Curve if we have any
-                if (optimal == 0) {
-                    uint256 _daiBalance = dai.balanceOf(address(this));
-                    if (_daiBalance > 0) {
-                        zapContract.add_liquidity(
-                            curve,
-                            [0, _daiBalance, 0, 0],
-                            0
-                        );
-                    }
-                } else if (optimal == 1) {
-                    uint256 _usdcBalance = usdc.balanceOf(address(this));
-                    if (_usdcBalance > 0) {
-                        zapContract.add_liquidity(
-                            curve,
-                            [0, 0, _usdcBalance, 0],
-                            0
-                        );
-                    }
-                } else {
-                    uint256 _usdtBalance = usdt.balanceOf(address(this));
-                    if (_usdtBalance > 0) {
-                        zapContract.add_liquidity(
-                            curve,
-                            [0, 0, 0, _usdtBalance],
-                            0
-                        );
-                    }
+                uint256 _wbtcBalance = wbtc.balanceOf(address(this));
+                if (_wbtcBalance > 0) {
+                    zapContract.add_liquidity(
+                        curve,
+                        [0, 0, _wbtcBalance, 0],
+                        0
+                    );
                 }
             }
         }
@@ -434,15 +431,55 @@ contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
         forceHarvestTriggerOnce = false;
     }
 
-    // Sells our harvested CRV into the selected output.
-    function _sell(uint256 _amount) internal {
-        IUniswapV2Router02(sushiswap).swapExactTokensForTokens(
-            _amount,
-            uint256(0),
-            crvPath,
-            address(this),
-            block.timestamp
-        );
+    // Sells our CRV -> WETH on UniV3, then WETH -> WBTC together on UniV3
+    function _sellCrv(uint256 _crvAmount) internal {
+        if (hasRewards) {
+            IUniV3(uniswapv3).exactInput(
+                IUniV3.ExactInputParams(
+                    abi.encodePacked(
+                        address(crv),
+                        uint24(uniCrvFee),
+                        address(weth)
+                    ),
+                    address(this),
+                    block.timestamp,
+                    _crvAmount,
+                    uint256(1)
+                )
+            );
+            uint256 _wethBalance = weth.balanceOf(address(this));
+            if (_wethBalance > 0) {
+                IUniV3(uniswapv3).exactInput(
+                    IUniV3.ExactInputParams(
+                        abi.encodePacked(
+                            address(weth),
+                            uint24(uniWbtcFee),
+                            address(wbtc)
+                        ),
+                        address(this),
+                        block.timestamp,
+                        _wethBalance,
+                        uint256(1)
+                    )
+                );
+            }
+        } else {
+            IUniV3(uniswapv3).exactInput(
+                IUniV3.ExactInputParams(
+                    abi.encodePacked(
+                        address(crv),
+                        uint24(uniCrvFee),
+                        address(weth),
+                        uint24(uniWbtcFee),
+                        address(wbtc)
+                    ),
+                    address(this),
+                    block.timestamp,
+                    _crvAmount,
+                    uint256(1)
+                )
+            );
+        }
     }
 
     // Sells our harvested reward token into the selected output.
@@ -536,7 +573,7 @@ contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
         // update with our new token, use dai as default
         rewardsToken = IERC20(_rewardsToken);
         rewardsToken.approve(sushiswap, type(uint256).max);
-        rewardsPath = [address(rewardsToken), address(weth), address(dai)];
+        rewardsPath = [address(rewardsToken), address(weth)];
         hasRewards = true;
     }
 
@@ -549,34 +586,18 @@ contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
         rewardsToken = IERC20(address(0));
     }
 
-    // Set optimal token to sell harvested funds for depositing to Curve.
-    // Default is DAI, but can be set to USDC or USDT as needed by strategist or governance.
-    function setOptimal(uint256 _optimal) external onlyAuthorized {
-        if (_optimal == 0) {
-            crvPath[2] = address(dai);
-            if (hasRewards) {
-                rewardsPath[2] = address(dai);
-            }
-            optimal = 0;
-        } else if (_optimal == 1) {
-            crvPath[2] = address(usdc);
-            if (hasRewards) {
-                rewardsPath[2] = address(usdc);
-            }
-            optimal = 1;
-        } else if (_optimal == 2) {
-            crvPath[2] = address(usdt);
-            if (hasRewards) {
-                rewardsPath[2] = address(usdt);
-            }
-            optimal = 2;
-        } else {
-            revert("incorrect token");
-        }
-    }
-
     // set the maximum gas price we want to pay for a harvest/tend in gwei
     function setGasPrice(uint256 _maxGasPrice) external onlyAuthorized {
         maxGasPrice = _maxGasPrice.mul(1e9);
+    }
+
+    // set the fee pool we'd like to swap through for CRV on UniV3 (1% = 10_000)
+    function setUniCrvFee(uint24 _fee) external onlyAuthorized {
+        uniCrvFee = _fee;
+    }
+
+    // set the fee pool we'd like to swap through for WBTC on UniV3 (1% = 10_000)
+    function setUniWbtcFee(uint24 _fee) external onlyAuthorized {
+        uniWbtcFee = _fee;
     }
 }

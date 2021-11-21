@@ -12,7 +12,7 @@ def test_update_from_zero(
     keeper,
     rewards,
     chain,
-    StrategyCurve3CrvRewardsClonable,
+    StrategyCurveSBTCRewardsClonable,
     voter,
     proxy,
     pid,
@@ -25,7 +25,7 @@ def test_update_from_zero(
     zero_address,
 ):
     ## clone our strategy, set our rewards to zero address
-    tx = strategy.cloneCurve3CrvRewards(
+    tx = strategy.cloneCurveSBTCRewards(
         vault,
         strategist,
         rewards,
@@ -37,7 +37,7 @@ def test_update_from_zero(
         strategy_name,
         {"from": gov},
     )
-    newStrategy = StrategyCurve3CrvRewardsClonable.at(tx.return_value)
+    newStrategy = StrategyCurveSBTCRewardsClonable.at(tx.return_value)
 
     # revoke and send all funds back to vault
     vault.revokeStrategy(strategy, {"from": gov})
@@ -56,7 +56,7 @@ def test_update_from_zero(
     before_pps = vault.pricePerShare()
     startingWhale = token.balanceOf(whale)
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
-    vault.deposit(1000e18, {"from": whale})
+    vault.deposit(amount, {"from": whale})
 
     # simulate 1 day of waiting
     chain.sleep(86400)
@@ -157,7 +157,7 @@ def test_turn_off_rewards(
     keeper,
     rewards,
     chain,
-    StrategyCurve3CrvRewardsClonable,
+    StrategyCurveSBTCRewardsClonable,
     voter,
     proxy,
     pid,
@@ -170,7 +170,7 @@ def test_turn_off_rewards(
     zero_address,
 ):
     ## clone our strategy, set our rewards to zero address
-    tx = strategy.cloneCurve3CrvRewards(
+    tx = strategy.cloneCurveSBTCRewards(
         vault,
         strategist,
         rewards,
@@ -182,7 +182,7 @@ def test_turn_off_rewards(
         strategy_name,
         {"from": gov},
     )
-    newStrategy = StrategyCurve3CrvRewardsClonable.at(tx.return_value)
+    newStrategy = StrategyCurveSBTCRewardsClonable.at(tx.return_value)
 
     # revoke and send all funds back to vault
     vault.revokeStrategy(strategy, {"from": gov})
@@ -196,7 +196,7 @@ def test_turn_off_rewards(
     before_pps = vault.pricePerShare()
     startingWhale = token.balanceOf(whale)
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
-    vault.deposit(1000e18, {"from": whale})
+    vault.deposit(amount, {"from": whale})
 
     # simulate 1 day of waiting
     chain.sleep(86400)
@@ -274,7 +274,7 @@ def test_update_from_zero_to_off(
     keeper,
     rewards,
     chain,
-    StrategyCurve3CrvRewardsClonable,
+    StrategyCurveSBTCRewardsClonable,
     voter,
     proxy,
     pid,
@@ -287,7 +287,7 @@ def test_update_from_zero_to_off(
     zero_address,
 ):
     ## clone our strategy, set our rewards to zero address
-    tx = strategy.cloneCurve3CrvRewards(
+    tx = strategy.cloneCurveSBTCRewards(
         vault,
         strategist,
         rewards,
@@ -299,7 +299,7 @@ def test_update_from_zero_to_off(
         strategy_name,
         {"from": gov},
     )
-    newStrategy = StrategyCurve3CrvRewardsClonable.at(tx.return_value)
+    newStrategy = StrategyCurveSBTCRewardsClonable.at(tx.return_value)
 
     # revoke and send all funds back to vault
     vault.revokeStrategy(strategy, {"from": gov})
@@ -313,7 +313,7 @@ def test_update_from_zero_to_off(
     before_pps = vault.pricePerShare()
     startingWhale = token.balanceOf(whale)
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
-    vault.deposit(1000e18, {"from": whale})
+    vault.deposit(amount, {"from": whale})
 
     # simulate 1 day of waiting
     chain.sleep(86400)
@@ -403,7 +403,7 @@ def test_change_rewards(
     keeper,
     rewards,
     chain,
-    StrategyCurve3CrvRewardsClonable,
+    StrategyCurveSBTCRewardsClonable,
     voter,
     proxy,
     pid,
@@ -416,7 +416,7 @@ def test_change_rewards(
     zero_address,
 ):
     ## clone our strategy, set our rewards to zero address
-    tx = strategy.cloneCurve3CrvRewards(
+    tx = strategy.cloneCurveSBTCRewards(
         vault,
         strategist,
         rewards,
@@ -428,7 +428,7 @@ def test_change_rewards(
         strategy_name,
         {"from": gov},
     )
-    newStrategy = StrategyCurve3CrvRewardsClonable.at(tx.return_value)
+    newStrategy = StrategyCurveSBTCRewardsClonable.at(tx.return_value)
 
     # revoke and send all funds back to vault
     vault.revokeStrategy(strategy, {"from": gov})
@@ -442,7 +442,7 @@ def test_change_rewards(
     before_pps = vault.pricePerShare()
     startingWhale = token.balanceOf(whale)
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
-    vault.deposit(1000e18, {"from": whale})
+    vault.deposit(amount, {"from": whale})
 
     # simulate 1 day of waiting
     chain.sleep(86400)
