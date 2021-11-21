@@ -56,7 +56,7 @@ def test_setters(
     strategy.setGasPrice(100, {"from": gov})
     strategy.setUniUsdcFee(3000, {"from": gov})
     strategy.setUniCrvFee(3000, {"from": gov})
-    strategy.setUniStableFee(3000, {"from": gov})
+    strategy.setUniEursFee(3000, {"from": gov})
 
     strategy.setStrategist(strategist, {"from": gov})
     name = strategy.name()

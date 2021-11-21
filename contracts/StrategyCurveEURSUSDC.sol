@@ -47,7 +47,7 @@ abstract contract StrategyCurveBase is BaseStrategy {
     // curve infrastructure contracts
     ICurveStrategyProxy public proxy =
         ICurveStrategyProxy(0xA420A63BbEFfbda3B147d0585F1852C358e2C152); // Yearn's Updated v4 StrategyProxy
-    address public constant gauge = 0x16C2beE6f55dAB7F494dBa643fF52ef2D47FBA36; // Curve gauge contract, most are tokenized, held by Yearn's voter
+    address public constant gauge = 0x65CA7Dc5CB661fC58De57B1E1aF404649a27AD35; // Curve gauge contract, most are tokenized, held by Yearn's voter
 
     // keepCRV stuff
     uint256 public keepCRV = 1000; // the percentage of CRV we re-lock for boost (in basis points)
@@ -57,7 +57,6 @@ abstract contract StrategyCurveBase is BaseStrategy {
     // swap stuff
     address internal constant sushiswap =
         0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F; // default to sushiswap, more CRV liquidity there
-    address[] internal crvPath;
 
     IERC20 internal constant crv =
         IERC20(0xD533a949740bb3306d119CC777fa900bA034cd52);
@@ -178,13 +177,13 @@ abstract contract StrategyCurveBase is BaseStrategy {
     }
 }
 
-contract StrategyCurveD3pool is StrategyCurveBase {
+contract StrategyCurveEURSUSDC is StrategyCurveBase {
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
 
     // Curve stuff
     ICurveFi public constant curve =
-        ICurveFi(0xBaaa1F5DbA42C3389bDbc2c9D2dE134F5cD0Dc89); // This is our pool specific to this vault.
+        ICurveFi(0x98a7F18d4E56Cfe84E3D081B40001B3d5bD3eB8B); // This is our pool specific to this vault.
     uint256 public maxGasPrice; // this is the max gas price we want our keepers to pay for harvests/tends in gwei
 
     // we use these to deposit to our curve pool
@@ -193,14 +192,11 @@ contract StrategyCurveD3pool is StrategyCurveBase {
         IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
     address internal constant uniswapv3 =
         address(0xE592427A0AEce92De3Edee1F18E0157C05861564);
-    address public targetStable;
-    IERC20 internal constant fei =
-        IERC20(0x956F47F50A910163D8BF957Cf5846D573E7f87CA);
-    IERC20 internal constant frax =
-        IERC20(0x853d955aCEf822Db058eb8505911ED77F175b99e);
+    IERC20 internal constant eurs =
+        IERC20(0xdB25f211AB05b1c97D595516F45794528a807ad8);
     uint24 public uniCrvFee; // this is equal to 1%, can change this later if a different path becomes more optimal
     uint24 public uniUsdcFee; // this is equal to 0.05%, can change this later if a different path becomes more optimal
-    uint24 public uniStableFee; // this is equal to 0.05%, can change this later if a different path becomes more optimal
+    uint24 public uniEursFee; // this is equal to 0.05%, can change this later if a different path becomes more optimal
 
     /* ========== CONSTRUCTOR ========== */
 
@@ -211,7 +207,7 @@ contract StrategyCurveD3pool is StrategyCurveBase {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 7 days; // 7 days in seconds
         minReportDelay = 3 days; // 3 days in seconds
-        debtThreshold = 500 * (10**vault.decimals()); // we shouldn't ever have losses, but set a bit of a buffer
+        debtThreshold = 100_000_000 * (10**vault.decimals()); // we don't use this, set it high to avoid triggering
         profitFactor = 1_000_000; // in this strategy, profitFactor is only used for telling keep3rs when to move funds from vault to strategy
         healthCheck = 0xDDCea799fF1699e98EDF118e0629A974Df7DF012; // health.ychad.eth
 
@@ -227,19 +223,16 @@ contract StrategyCurveD3pool is StrategyCurveBase {
         stratName = _name;
 
         // these are our approvals and path specific to this contract
-        frax.approve(address(curve), type(uint256).max);
-        fei.approve(address(curve), type(uint256).max);
-
-        // start off with fei
-        targetStable = address(fei);
+        usdc.approve(address(curve), type(uint256).max);
+        eurs.approve(address(curve), type(uint256).max);
 
         // set our max gas price
         maxGasPrice = 125 * 1e9;
 
         // set our uniswap pool fees
         uniCrvFee = 10000;
-        uniStableFee = 500;
         uniUsdcFee = 500;
+        uniEursFee = 500;
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
@@ -276,14 +269,14 @@ contract StrategyCurveD3pool is StrategyCurveBase {
 
                 // deposit our balance to Curve if we have any
                 if (optimal == 0) {
-                    uint256 _feiBalance = fei.balanceOf(address(this));
-                    if (_feiBalance > 0) {
-                        curve.add_liquidity([0, _feiBalance, 0], 0);
+                    uint256 usdcBalance = usdc.balanceOf(address(this));
+                    if (usdcBalance > 0) {
+                        curve.add_liquidity([usdcBalance, 0], 0);
                     }
                 } else {
-                    uint256 _fraxBalance = frax.balanceOf(address(this));
-                    if (_fraxBalance > 0) {
-                        curve.add_liquidity([_fraxBalance, 0, 0], 0);
+                    uint256 eursBalance = eurs.balanceOf(address(this));
+                    if (eursBalance > 0) {
+                        curve.add_liquidity([0, eursBalance], 0);
                     }
                 }
             }
@@ -325,25 +318,43 @@ contract StrategyCurveD3pool is StrategyCurveBase {
         forceHarvestTriggerOnce = false;
     }
 
-    // Sells our CRV -> WETH -> USDC -> stable of choice on UniV3
+    // Sells our CRV -> WETH -> USDC or on to EURS
     function _sell(uint256 _crvAmount) internal {
-        IUniV3(uniswapv3).exactInput(
-            IUniV3.ExactInputParams(
-                abi.encodePacked(
-                    address(crv),
-                    uint24(uniCrvFee),
-                    address(weth),
-                    uint24(uniUsdcFee),
-                    address(usdc),
-                    uint24(uniStableFee),
-                    address(targetStable)
-                ),
-                address(this),
-                block.timestamp,
-                _crvAmount,
-                uint256(1)
-            )
-        );
+        if (optimal == 0) {
+            IUniV3(uniswapv3).exactInput(
+                IUniV3.ExactInputParams(
+                    abi.encodePacked(
+                        address(crv),
+                        uint24(uniCrvFee),
+                        address(weth),
+                        uint24(uniUsdcFee),
+                        address(usdc)
+                    ),
+                    address(this),
+                    block.timestamp,
+                    _crvAmount,
+                    uint256(1)
+                )
+            );
+        } else {
+            IUniV3(uniswapv3).exactInput(
+                IUniV3.ExactInputParams(
+                    abi.encodePacked(
+                        address(crv),
+                        uint24(uniCrvFee),
+                        address(weth),
+                        uint24(uniUsdcFee),
+                        address(usdc),
+                        uint24(uniEursFee),
+                        address(eurs)
+                    ),
+                    address(this),
+                    block.timestamp,
+                    _crvAmount,
+                    uint256(1)
+                )
+            );
+        }
     }
 
     /* ========== KEEP3RS ========== */
@@ -417,13 +428,11 @@ contract StrategyCurveD3pool is StrategyCurveBase {
 
     // These functions are useful for setting parameters of the strategy that may need to be adjusted.
     // Set optimal token to sell harvested funds for depositing to Curve.
-    // Default is FEI, but can be set to FRAX as needed by strategist or governance.
+    // Default is USDC, but can be set to EURS as needed by strategist or governance.
     function setOptimal(uint256 _optimal) external onlyAuthorized {
         if (_optimal == 0) {
-            targetStable = address(fei);
             optimal = 0;
         } else if (_optimal == 1) {
-            targetStable = address(frax);
             optimal = 1;
         } else {
             revert("incorrect token");
@@ -446,7 +455,7 @@ contract StrategyCurveD3pool is StrategyCurveBase {
     }
 
     // set the fee pool we'd like to swap through for WBTC on UniV3 (1% = 10_000)
-    function setUniStableFee(uint24 _fee) external onlyAuthorized {
-        uniStableFee = _fee;
+    function setUniEursFee(uint24 _fee) external onlyAuthorized {
+        uniEursFee = _fee;
     }
 }
