@@ -187,7 +187,7 @@ contract StrategyCurveEURSUSDC is StrategyCurveBase {
     uint256 public maxGasPrice; // this is the max gas price we want our keepers to pay for harvests/tends in gwei
 
     // we use these to deposit to our curve pool
-    uint256 public optimal; // this is the optimal token to deposit back to our curve pool. 0 FEI, 1 FRAX
+    uint256 public optimal; // this is the optimal token to deposit back to our curve pool. 0 USDC, 1 EURS
     IERC20 internal constant usdc =
         IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
     address internal constant uniswapv3 =
@@ -214,7 +214,6 @@ contract StrategyCurveEURSUSDC is StrategyCurveBase {
         // these are our standard approvals. want = Curve LP token
         want.approve(address(proxy), type(uint256).max);
         crv.approve(uniswapv3, type(uint256).max);
-        weth.approve(uniswapv3, type(uint256).max);
 
         // set our keepCRV
         keepCRV = 1000;
