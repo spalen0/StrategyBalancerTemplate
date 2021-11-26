@@ -207,8 +207,6 @@ contract StrategyCurveEURSUSDC is StrategyCurveBase {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 7 days; // 7 days in seconds
         minReportDelay = 3 days; // 3 days in seconds
-        debtThreshold = 100_000_000 * (10**vault.decimals()); // we don't use this, set it high to avoid triggering
-        profitFactor = 1_000_000; // in this strategy, profitFactor is only used for telling keep3rs when to move funds from vault to strategy
         healthCheck = 0xDDCea799fF1699e98EDF118e0629A974Df7DF012; // health.ychad.eth
 
         // these are our standard approvals. want = Curve LP token
@@ -386,12 +384,8 @@ contract StrategyCurveEURSUSDC is StrategyCurveBase {
             return true;
         }
 
-        // Should not trigger if strategy is not active (no assets and no debtRatio). This means we don't need to adjust keeper job.
-        if (!isActive()) {
-            return false;
-        }
-
-        return super.harvestTrigger(callCostinEth);
+        // otherwise, we don't harvest
+        return false;
     }
 
     // convert our keeper's eth cost into want, pretend that it's something super cheap so profitFactor isn't triggered
