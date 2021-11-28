@@ -18,7 +18,7 @@ import {
 } from "@yearnvaults/contracts/BaseStrategy.sol";
 
 interface IBaseFee {
-    function basefee_global() external view returns (uint256);
+    function isCurrentBaseFeeAcceptable() external view returns (bool);
 }
 
 interface IUniV3 {
@@ -185,8 +185,6 @@ contract StrategyCurveEURTUSD is StrategyCurveBase {
     ICurveFi public constant curve =
         ICurveFi(0x5D0F47B32fDd343BfA74cE221808e2abE4A53827); // This is our pool specific to this vault.
 
-    uint256 public maxGasPrice; // this is the max gas price we want our keepers to pay for harvests/tends in gwei
-
     // we use these to deposit to our curve pool
     uint256 internal optimal; // this is the optimal token to deposit back to our curve pool. 0 DAI, 1 USDC, 2 USDT, 3 EURT
     address public targetStable;
@@ -236,9 +234,6 @@ contract StrategyCurveEURTUSD is StrategyCurveBase {
         usdt.safeApprove(address(curve), type(uint256).max); // USDT requires safeApprove(), funky token
         eurt.safeApprove(address(curve), type(uint256).max); // EURT requires safeApprove(), funky token
         usdc.approve(address(curve), type(uint256).max);
-
-        // set our max gas price
-        maxGasPrice = 125 * 1e9;
 
         // set our uniswap pool fees
         uniCrvFee = 10000;
@@ -407,8 +402,8 @@ contract StrategyCurveEURTUSD is StrategyCurveBase {
             return true;
         }
 
-        // check if the base fee gas price is higher than we allow
-        if (readBaseFee() > maxGasPrice) {
+        // check if the base fee gas price is higher than we allow. if it is, block harvests.
+        if (!isBaseFeeAcceptable()) {
             return false;
         }
 
@@ -426,33 +421,21 @@ contract StrategyCurveEURTUSD is StrategyCurveBase {
         return false;
     }
 
-    // convert our keeper's eth cost into want, pretend that it's something super cheap so profitFactor isn't triggered
+    // convert our keeper's eth cost into want, we don't need this anymore since we don't use baseStrategy harvestTrigger
     function ethToWant(uint256 _ethAmount)
         public
         view
         override
         returns (uint256)
     {
-        return _ethAmount.mul(1e6);
+        return _ethAmount;
     }
 
-    // check the current baseFee
-    function readBaseFee() internal view returns (uint256) {
-        uint256 baseFee;
-        try
-            IBaseFee(0xf8d0Ec04e94296773cE20eFbeeA82e76220cD549)
-                .basefee_global()
-        returns (uint256 currentBaseFee) {
-            baseFee = currentBaseFee;
-        } catch {
-            // Useful for testing until ganache supports london fork
-            // Hard-code current base fee to 100 gwei
-            // This should also help keepers that run in a fork without
-            // baseFee() to avoid reverting and potentially abandoning the job
-            baseFee = 100 * 1e9;
-        }
-
-        return baseFee;
+    // check if the current baseFee is below our external target
+    function isBaseFeeAcceptable() internal view returns (bool) {
+        return
+            IBaseFee(0xb5e1CAcB567d98faaDB60a1fD4820720141f064F)
+                .isCurrentBaseFeeAcceptable();
     }
 
     /* ========== SETTERS ========== */
@@ -479,23 +462,14 @@ contract StrategyCurveEURTUSD is StrategyCurveBase {
         }
     }
 
-    // set the maximum gas price we want to pay for a harvest/tend in gwei
-    function setGasPrice(uint256 _maxGasPrice) external onlyAuthorized {
-        maxGasPrice = _maxGasPrice.mul(1e9);
-    }
-
     // set the fee pool we'd like to swap through for CRV on UniV3 (1% = 10_000)
-    function setUniCrvFee(uint24 _fee) external onlyAuthorized {
-        uniCrvFee = _fee;
-    }
-
-    // set the fee pool we'd like to swap through for Stables on UniV3 (1% = 10_000)
-    function setUniStableFee(uint24 _fee) external onlyAuthorized {
-        uniStableFee = _fee;
-    }
-
-    // set the fee pool we'd like to swap through for EURT on UniV3 (1% = 10_000)
-    function setUniEurtFee(uint24 _fee) external onlyAuthorized {
-        uniEurtFee = _fee;
+    function setUniFees(
+        uint24 _crvFee,
+        uint24 _stableFee,
+        uint24 _eurtFee
+    ) external onlyAuthorized {
+        uniCrvFee = _crvFee;
+        uniStableFee = _stableFee;
+        uniEurtFee = _eurtFee;
     }
 }
