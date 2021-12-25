@@ -14,7 +14,6 @@ def test_simple_harvest(
     chain,
     strategist_ms,
     gauge,
-    voter,
     amount,
 ):
     ## deposit to the vault after approving
@@ -57,7 +56,7 @@ def test_simple_harvest(
 
     # Display estimated APR
     print(
-        "\nEstimated WETH APR: ",
+        "\nEstimated DAI APR: ",
         "{:.2%}".format(
             ((new_assets - old_assets) * (365 * 2)) / (strategy.estimatedTotalAssets())
         ),

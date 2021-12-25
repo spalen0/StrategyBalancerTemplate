@@ -17,10 +17,6 @@ import {
     StrategyParams
 } from "@yearnvaults/contracts/BaseStrategy.sol";
 
-interface IBaseFee {
-    function isCurrentBaseFeeAcceptable() external view returns (bool);
-}
-
 interface IUniV3 {
     struct ExactInputParams {
         bytes path;
@@ -46,16 +42,16 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
     // Curve stuff
     IGauge public constant gauge =
-        IGauge(0x00702BbDEaD24C40647f235F15971dB0867F6bdB); // Curve gauge contract, most are tokenized, held by strategy
+        IGauge(0x3B6B158A76fd8ccc297538F454ce7B4787778c7C); // Curve gauge contract, tokenized, held by strategy
 
     // keepCRV stuff
     uint256 public keepCRV; // the percentage of CRV we re-lock for boost (in basis points)
     uint256 internal constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in basis points
 
-    IERC20 public constant crv =
-        IERC20(0x1E4F97b9f9F913c46F1632781732927B9019C68b);
-    IERC20 public constant wftm =
-        IERC20(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
+    IERC20 internal constant crv =
+        IERC20(0x172370d5Cd63279eFa6d502DAB29171933a610AF);
+    IERC20 internal constant wmatic =
+        IERC20(0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270);
 
     bool internal forceHarvestTriggerOnce; // only set this to true externally when we want to trigger our keepers to harvest for us
 
@@ -163,26 +159,33 @@ abstract contract StrategyCurveBase is BaseStrategy {
     }
 }
 
-contract StrategyCurveTricrypto is StrategyCurveBase {
+contract StrategyCurveaTricrypto is StrategyCurveBase {
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
 
     // Curve stuff
     ICurveFi public constant curve =
-        ICurveFi(0x3a1659Ddcf2339Be3aeA159cA010979FB49155FF); // This is our pool specific to this vault.
+        ICurveFi(0x1d8b86e3D88cDb2d34688e87E72F388Cb541B7C8); // This is our pool specific to this vault. In this case, it is a zap.
 
     // we use these to deposit to our curve pool
-    address public targetToken; // this is the token we sell into, WETH, WBTC, or fUSDT
-    IERC20 public constant wbtc =
-        IERC20(0x321162Cd933E2Be498Cd2267a90534A804051b11);
-    IERC20 public constant weth =
-        IERC20(0x74b23882a30290451A17c44f4F05243b6b58C76d);
-    IERC20 public constant fusdt =
-        IERC20(0x049d68029688eAbF473097a2fC38ef61633A3C7A);
-    IUniswapV2Router02 public router =
-        IUniswapV2Router02(0xF491e7B69E4244ad4002BC14e878a34207E38c29); // this is the router we swap with, start with spookyswap
+    address public targetToken; // this is the token we sell into, 0 DAI, 1 USDC, 2 USDT, 3 WBTC, 4 WETH
+    uint256 public optimal; // this is the token we sell into, 0 DAI, 1 USDC, 2 USDT, 3 WBTC, 4 WETH
+    IERC20 internal constant wbtc =
+        IERC20(0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6);
+    IERC20 internal constant weth =
+        IERC20(0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619);
+    IERC20 internal constant usdt =
+        IERC20(0xc2132D05D31c914a87C6611C10748AEb04B58e8F);
+    IERC20 internal constant usdc =
+        IERC20(0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174);
+    IERC20 internal constant dai =
+        IERC20(0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063);
+    IUniswapV2Router02 internal mainRouter =
+        IUniswapV2Router02(0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff); // this is the router we swap with except for CRV
+    IUniswapV2Router02 internal crvRouter =
+        IUniswapV2Router02(0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506); // this is the router we swap CRV with, Sushi
 
-    address public constant voter = 0x72a34AbafAB09b15E7191822A679f28E067C4a16; // sms
+    address public constant voter = 0xD20Eb2390e675b000ADb8511F62B28404115A1a4; // sms, still need to set this, currently using my deployer as dummy********
 
     /* ========== CONSTRUCTOR ========== */
 
@@ -192,16 +195,13 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
     {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 2 days; // 2 days in seconds
-        healthCheck = 0xf13Cd6887C62B5beC145e30c38c4938c5E627fe0; // health.ychad.eth
+        // healthCheck; // health.ychad.eth
 
         // these are our standard approvals. want = Curve LP token
-        address spooky = 0xF491e7B69E4244ad4002BC14e878a34207E38c29;
-        address spirit = 0x16327E3FbDaCA3bcF7E38F5Af2599D2DDc33aE52;
         want.approve(address(gauge), type(uint256).max);
-        crv.approve(spooky, type(uint256).max);
-        wftm.approve(spooky, type(uint256).max);
-        crv.approve(spirit, type(uint256).max);
-        wftm.approve(spirit, type(uint256).max);
+        crv.approve(address(crvRouter), type(uint256).max);
+        wmatic.approve(address(mainRouter), type(uint256).max);
+        weth.approve(address(mainRouter), type(uint256).max);
 
         // set our strategy's name
         stratName = _name;
@@ -209,10 +209,12 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
         // these are our approvals and path specific to this contract
         wbtc.approve(address(curve), type(uint256).max);
         weth.approve(address(curve), type(uint256).max);
-        fusdt.safeApprove(address(curve), type(uint256).max);
+        usdt.safeApprove(address(curve), type(uint256).max);
+        dai.approve(address(curve), type(uint256).max);
+        usdc.approve(address(curve), type(uint256).max);
 
-        // start off with fusdt
-        targetToken = address(fusdt);
+        // start off with dai
+        targetToken = address(dai);
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
@@ -230,7 +232,8 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
         // harvest our rewards from the gauge
         gauge.claim_rewards();
         uint256 crvBalance = crv.balanceOf(address(this));
-        uint256 wftmBalance = wftm.balanceOf(address(this));
+        uint256 wmaticBalance = wmatic.balanceOf(address(this));
+
         // if we claimed any CRV, then sell it
         if (crvBalance > 0) {
             // keep some of our CRV to increase our boost
@@ -241,24 +244,39 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
 
             // check our balance again after transferring some crv to our voter
             crvBalance = crv.balanceOf(address(this));
-
-            // sell the rest of our CRV
-            if (crvBalance > 0) {
-                _sellToken(address(crv), crvBalance);
-            }
-        }
-        // sell WFTM if we have any
-        if (wftmBalance > 0) {
-            _sellToken(address(wftm), wftmBalance);
         }
 
-        uint256 wethBalance = weth.balanceOf(address(this));
-        uint256 wbtcBalance = wbtc.balanceOf(address(this));
-        uint256 fusdtBalance = fusdt.balanceOf(address(this));
+        // sell our WMATIC and CRV if we have any
+        if (wmaticBalance > 0 || crvBalance > 0) {
+            _sell(wmaticBalance, crvBalance);
+        }
 
         // deposit our balance to Curve if we have any
-        if (wethBalance > 0 || wbtcBalance > 0 || fusdtBalance > 0) {
-            curve.add_liquidity([fusdtBalance, wbtcBalance, wethBalance], 0);
+        if (optimal == 0) {
+            uint256 daiBalance = dai.balanceOf(address(this));
+            if (daiBalance > 0) {
+                curve.add_liquidity([daiBalance, 0, 0, 0, 0], 0);
+            }
+        } else if (optimal == 1) {
+            uint256 usdcBalance = usdc.balanceOf(address(this));
+            if (usdcBalance > 0) {
+                curve.add_liquidity([0, usdcBalance, 0, 0, 0], 0);
+            }
+        } else if (optimal == 2) {
+            uint256 usdtBalance = usdt.balanceOf(address(this));
+            if (usdtBalance > 0) {
+                curve.add_liquidity([0, 0, usdtBalance, 0, 0], 0);
+            }
+        } else if (optimal == 3) {
+            uint256 wbtcBalance = wbtc.balanceOf(address(this));
+            if (wbtcBalance > 0) {
+                curve.add_liquidity([0, 0, 0, wbtcBalance, 0], 0);
+            }
+        } else {
+            uint256 wethBalance = weth.balanceOf(address(this));
+            if (wethBalance > 0) {
+                curve.add_liquidity([0, 0, 0, 0, wethBalance], 0);
+            }
         }
 
         // debtOustanding will only be > 0 in the event of revoking or if we need to rebalance from a withdrawal or lowering the debtRatio
@@ -294,26 +312,57 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
         forceHarvestTriggerOnce = false;
     }
 
-    // Sells our CRV, WFTM, or GEIST for our target token
-    function _sellToken(address token, uint256 _amount) internal {
-        if (token == address(wftm)) {
+    // Sells our CRV and/or WMATIC for our target token
+    function _sell(uint256 _wmaticBalance, uint256 _crvBalance) internal {
+        // sell our WMATIC directly to USDC or USDT if they're the targetToken, otherwise swap it for WETH
+        if (_wmaticBalance > 0) {
+            if (optimal == 1 || optimal == 2) {
+                address[] memory tokenPath = new address[](2);
+                tokenPath[0] = address(wmatic);
+                tokenPath[1] = address(targetToken);
+                IUniswapV2Router02(mainRouter).swapExactTokensForTokens(
+                    _wmaticBalance,
+                    uint256(0),
+                    tokenPath,
+                    address(this),
+                    block.timestamp
+                );
+            } else {
+                address[] memory tokenPath = new address[](2);
+                tokenPath[0] = address(wmatic);
+                tokenPath[1] = address(weth);
+                IUniswapV2Router02(mainRouter).swapExactTokensForTokens(
+                    _wmaticBalance,
+                    uint256(0),
+                    tokenPath,
+                    address(this),
+                    block.timestamp
+                );
+            }
+        }
+
+        // check for CRV balance and sell it on Sushi if we have any
+        if (_crvBalance > 0) {
             address[] memory tokenPath = new address[](2);
-            tokenPath[0] = address(wftm);
-            tokenPath[1] = address(targetToken);
-            IUniswapV2Router02(router).swapExactTokensForTokens(
-                _amount,
+            tokenPath[0] = address(crv);
+            tokenPath[1] = address(weth);
+            IUniswapV2Router02(crvRouter).swapExactTokensForTokens(
+                _crvBalance,
                 uint256(0),
                 tokenPath,
                 address(this),
                 block.timestamp
             );
-        } else {
-            address[] memory tokenPath = new address[](3);
-            tokenPath[0] = address(token);
-            tokenPath[1] = address(wftm);
-            tokenPath[2] = address(targetToken);
-            IUniswapV2Router02(router).swapExactTokensForTokens(
-                _amount,
+        }
+
+        // check for WETH balance, if it's not our targetToken then swap it
+        uint256 wethBalance = weth.balanceOf(address(this));
+        if (wethBalance > 0 && optimal != 4) {
+            address[] memory tokenPath = new address[](2);
+            tokenPath[0] = address(weth);
+            tokenPath[1] = address(targetToken);
+            IUniswapV2Router02(mainRouter).swapExactTokensForTokens(
+                wethBalance,
                 uint256(0),
                 tokenPath,
                 address(this),
@@ -360,29 +409,25 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
 
     // These functions are useful for setting parameters of the strategy that may need to be adjusted.
     // Set optimal token to sell harvested funds for depositing to Curve.
-    // Default is fUSDT, but can be set to WETH or WBTC as needed by strategist or governance.
+    // Default is DAI, but can be set to USDC, USDT, WETH or WBTC as needed by strategist or governance.
     function setOptimal(uint256 _optimal) external onlyAuthorized {
         if (_optimal == 0) {
-            targetToken = address(weth);
+            targetToken = address(dai);
+            optimal = 0;
         } else if (_optimal == 1) {
-            targetToken = address(wbtc);
+            targetToken = address(usdc);
+            optimal = 1;
         } else if (_optimal == 2) {
-            targetToken = address(fusdt);
+            targetToken = address(usdt);
+            optimal = 2;
+        } else if (_optimal == 3) {
+            targetToken = address(wbtc);
+            optimal = 3;
+        } else if (_optimal == 4) {
+            targetToken = address(weth);
+            optimal = 4;
         } else {
             revert("incorrect token");
-        }
-    }
-
-    // spookyswap generally has better liquidity. if this changes, we can use spiritswap.
-    function setUseSpooky(bool useSpooky) external onlyAuthorized {
-        if (useSpooky) {
-            router = IUniswapV2Router02(
-                0xF491e7B69E4244ad4002BC14e878a34207E38c29
-            ); // spookyswap's router
-        } else {
-            router = IUniswapV2Router02(
-                0x16327E3FbDaCA3bcF7E38F5Af2599D2DDc33aE52
-            ); // spiritswap router
         }
     }
 }

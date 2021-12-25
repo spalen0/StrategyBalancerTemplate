@@ -11,7 +11,7 @@ def isolation(fn_isolation):
 def whale(accounts):
     # Totally in it for the tech
     # Update this with a large holder of your want token (the largest EOA holder of LP)
-    whale = accounts.at("0x4d51B782DA9e2cD073916bd4e9eC6d06916B049e", force=True)
+    whale = accounts.at("0x5342D9085765baBF184e7bBa98C9CB7528dfDACE", force=True)
     yield whale
 
 
@@ -25,7 +25,7 @@ def amount():
 # this is the name we want to give our strategy
 @pytest.fixture(scope="module")
 def strategy_name():
-    strategy_name = "StrategyCurveTricrypto"
+    strategy_name = "StrategyCurveaTricrypto"
     yield strategy_name
 
 
@@ -33,14 +33,14 @@ def strategy_name():
 # ----------------------------------------------------------------------- #
 
 
-@pytest.fixture(scope="function")
-def voter():
-    yield Contract("0x72a34AbafAB09b15E7191822A679f28E067C4a16")
+# @pytest.fixture(scope="function")
+# def voter():
+#     yield Contract("0x72a34AbafAB09b15E7191822A679f28E067C4a16")
 
 
 @pytest.fixture(scope="function")
 def crv():
-    yield Contract("0x1E4F97b9f9F913c46F1632781732927B9019C68b")
+    yield Contract("0x172370d5Cd63279eFa6d502DAB29171933a610AF")
 
 
 @pytest.fixture(scope="module")
@@ -53,16 +53,16 @@ def farmed():
     yield Contract("0x7d016eec9c25232b01F23EF992D98ca97fc2AF5a")
 
 
-@pytest.fixture(scope="module")
-def healthCheck():
-    yield Contract("0xf13Cd6887C62B5beC145e30c38c4938c5E627fe0")
+# @pytest.fixture(scope="module")
+# def healthCheck():
+#     yield Contract("0xf13Cd6887C62B5beC145e30c38c4938c5E627fe0")
 
 
 # Define relevant tokens and contracts in this section
 @pytest.fixture(scope="module")
 def token():
     # this should be the address of the ERC-20 used by the strategy/vault
-    token_address = "0x58e57cA18B7A47112b877E31929798Cd3D703b0f"
+    token_address = "0xdAD97F7713Ae9437fa9249920eC8507e5FbB23d3"
     yield Contract(token_address)
 
 
@@ -77,14 +77,14 @@ def zero_address():
 @pytest.fixture(scope="module")
 def gauge():
     # this should be the address of the convex deposit token
-    gauge = "0x00702BbDEaD24C40647f235F15971dB0867F6bdB"
+    gauge = "0x3B6B158A76fd8ccc297538F454ce7B4787778c7C"
     yield Contract(gauge)
 
 
 # curve deposit pool
 @pytest.fixture(scope="module")
 def pool():
-    poolAddress = Contract("0x3a1659Ddcf2339Be3aeA159cA010979FB49155FF")
+    poolAddress = Contract("0x1d8b86e3D88cDb2d34688e87E72F388Cb541B7C8")
     yield poolAddress
 
 
@@ -155,14 +155,14 @@ def vault(pm, gov, rewards, guardian, management, token, chain):
 # replace the first value with the name of your strategy
 @pytest.fixture(scope="function")
 def strategy(
-    StrategyCurveTricrypto,
+    StrategyCurveaTricrypto,
     strategist,
     keeper,
     vault,
     gov,
     guardian,
     token,
-    healthCheck,
+    # healthCheck,
     chain,
     pool,
     strategy_name,
@@ -171,7 +171,7 @@ def strategy(
 ):
     # make sure to include all constructor parameters needed here
     strategy = strategist.deploy(
-        StrategyCurveTricrypto,
+        StrategyCurveaTricrypto,
         vault,
         strategy_name,
     )
@@ -180,8 +180,8 @@ def strategy(
     vault.setManagementFee(0, {"from": gov})
     # add our new strategy
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
-    strategy.setHealthCheck(healthCheck, {"from": gov})
-    strategy.setDoHealthCheck(True, {"from": gov})
+#     strategy.setHealthCheck(healthCheck, {"from": gov})
+#     strategy.setDoHealthCheck(True, {"from": gov})
     chain.sleep(1)
     strategy.harvest({"from": gov})
     chain.sleep(1)

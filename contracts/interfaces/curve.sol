@@ -59,6 +59,12 @@ interface ICurveFi {
     ) external payable returns (uint256);
 
     function add_liquidity(
+        // aTricrypto on polygon
+        uint256[5] calldata amounts,
+        uint256 min_mint_amount
+    ) external returns (uint256);
+
+    function add_liquidity(
         // 3pool
         uint256[3] calldata amounts,
         uint256 min_mint_amount
