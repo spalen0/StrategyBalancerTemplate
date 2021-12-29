@@ -11,7 +11,7 @@ def isolation(fn_isolation):
 def whale(accounts):
     # Totally in it for the tech
     # Update this with a large holder of your want token (the largest EOA holder of LP)
-    whale = accounts.at("0x5342D9085765baBF184e7bBa98C9CB7528dfDACE", force=True)
+    whale = accounts.at("0xE3b206A0ED144cB558ADe4699f3AA322B8D5D08E", force=True)
     yield whale
 
 
@@ -29,50 +29,6 @@ def strategy_name():
     yield strategy_name
 
 
-# Only worry about changing things above this line, unless you want to make changes to the vault or strategy.
-# ----------------------------------------------------------------------- #
-
-
-# @pytest.fixture(scope="function")
-# def voter():
-#     yield Contract("0x72a34AbafAB09b15E7191822A679f28E067C4a16")
-
-
-@pytest.fixture(scope="function")
-def crv():
-    yield Contract("0x172370d5Cd63279eFa6d502DAB29171933a610AF")
-
-
-@pytest.fixture(scope="module")
-def other_vault_strategy():
-    yield Contract("0xfF8bb7261E4D51678cB403092Ae219bbEC52aa51")
-
-
-@pytest.fixture(scope="module")
-def farmed():
-    yield Contract("0x7d016eec9c25232b01F23EF992D98ca97fc2AF5a")
-
-
-# @pytest.fixture(scope="module")
-# def healthCheck():
-#     yield Contract("0xf13Cd6887C62B5beC145e30c38c4938c5E627fe0")
-
-
-# Define relevant tokens and contracts in this section
-@pytest.fixture(scope="module")
-def token():
-    # this should be the address of the ERC-20 used by the strategy/vault
-    token_address = "0xdAD97F7713Ae9437fa9249920eC8507e5FbB23d3"
-    yield Contract(token_address)
-
-
-# zero address
-@pytest.fixture(scope="module")
-def zero_address():
-    zero_address = "0x0000000000000000000000000000000000000000"
-    yield zero_address
-
-
 # gauge for the curve pool
 @pytest.fixture(scope="module")
 def gauge():
@@ -88,18 +44,62 @@ def pool():
     yield poolAddress
 
 
+# Define relevant tokens and contracts in this section
+@pytest.fixture(scope="module")
+def token():
+    # this should be the address of the ERC-20 used by the strategy/vault
+    token_address = "0xdAD97F7713Ae9437fa9249920eC8507e5FbB23d3"
+    yield Contract(token_address)
+
+
+# Only worry about changing things above this line, unless you want to make changes to the vault or strategy.
+# ----------------------------------------------------------------------- #
+
+
+@pytest.fixture(scope="function")
+def voter():  # set this to polygon gov for now
+    yield Contract("0xd131Ff7caF3a2EdD4B1741dd8fC2F9A92A13cD25")
+
+
+@pytest.fixture(scope="function")
+def crv():
+    yield Contract("0x172370d5Cd63279eFa6d502DAB29171933a610AF")
+
+
+@pytest.fixture(scope="module")
+def other_vault_strategy():
+    yield Contract("0xb1A092293290E60B288B2B75D83a1a086392C037")
+
+
+@pytest.fixture(scope="module")
+def farmed():
+    yield Contract("0x7d016eec9c25232b01F23EF992D98ca97fc2AF5a")
+
+
+@pytest.fixture(scope="module")
+def healthCheck():
+    yield Contract("0xA67667199048E3857BCd4d0760f383D1BC421A26")
+
+
+# zero address
+@pytest.fixture(scope="module")
+def zero_address():
+    zero_address = "0x0000000000000000000000000000000000000000"
+    yield zero_address
+
+
 # Define any accounts in this section
 # for live testing, governance is the strategist MS; we will update this before we endorse
 # normal gov is ychad, 0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52
 @pytest.fixture(scope="module")
 def gov(accounts):
-    yield accounts.at("0xC0E2830724C946a6748dDFE09753613cd38f6767", force=True)
+    yield accounts.at("0xd131Ff7caF3a2EdD4B1741dd8fC2F9A92A13cD25", force=True)
 
 
 @pytest.fixture(scope="module")
 def strategist_ms(accounts):
-    # like governance, but better
-    yield accounts.at("0x72a34AbafAB09b15E7191822A679f28E067C4a16", force=True)
+    # set this to gov for polygon for now
+    yield accounts.at("0xd131Ff7caF3a2EdD4B1741dd8fC2F9A92A13cD25", force=True)
 
 
 @pytest.fixture(scope="module")
@@ -162,7 +162,7 @@ def strategy(
     gov,
     guardian,
     token,
-    # healthCheck,
+    healthCheck,
     chain,
     pool,
     strategy_name,
@@ -180,8 +180,8 @@ def strategy(
     vault.setManagementFee(0, {"from": gov})
     # add our new strategy
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
-#     strategy.setHealthCheck(healthCheck, {"from": gov})
-#     strategy.setDoHealthCheck(True, {"from": gov})
+    strategy.setHealthCheck(healthCheck, {"from": gov})
+    strategy.setDoHealthCheck(True, {"from": gov})
     chain.sleep(1)
     strategy.harvest({"from": gov})
     chain.sleep(1)

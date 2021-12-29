@@ -15,7 +15,7 @@ def test_migration(
     strategy,
     chain,
     strategist_ms,
-    # healthCheck,
+    healthCheck,
     amount,
     pool,
     strategy_name,
@@ -49,8 +49,8 @@ def test_migration(
 
     # migrate our old strategy
     vault.migrateStrategy(strategy, new_strategy, {"from": gov})
-    # new_strategy.setHealthCheck(healthCheck, {"from": gov})
-    # new_strategy.setDoHealthCheck(True, {"from": gov})
+    new_strategy.setHealthCheck(healthCheck, {"from": gov})
+    new_strategy.setDoHealthCheck(True, {"from": gov})
 
     # assert that our old strategy is empty
     updated_total_old = strategy.estimatedTotalAssets()

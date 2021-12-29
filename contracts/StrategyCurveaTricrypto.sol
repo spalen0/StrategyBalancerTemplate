@@ -169,7 +169,7 @@ contract StrategyCurveaTricrypto is StrategyCurveBase {
 
     // we use these to deposit to our curve pool
     address public targetToken; // this is the token we sell into, 0 DAI, 1 USDC, 2 USDT, 3 WBTC, 4 WETH
-    uint256 public optimal; // this is the token we sell into, 0 DAI, 1 USDC, 2 USDT, 3 WBTC, 4 WETH
+    uint256 public optimal = 2; // this is the token we sell into, 0 DAI, 1 USDC, 2 USDT, 3 WBTC, 4 WETH
     IERC20 internal constant wbtc =
         IERC20(0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6);
     IERC20 internal constant weth =
@@ -195,7 +195,7 @@ contract StrategyCurveaTricrypto is StrategyCurveBase {
     {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 2 days; // 2 days in seconds
-        // healthCheck; // health.ychad.eth
+        healthCheck = 0xA67667199048E3857BCd4d0760f383D1BC421A26; // health.ychad.eth
 
         // these are our standard approvals. want = Curve LP token
         want.approve(address(gauge), type(uint256).max);
@@ -214,7 +214,7 @@ contract StrategyCurveaTricrypto is StrategyCurveBase {
         usdc.approve(address(curve), type(uint256).max);
 
         // start off with dai
-        targetToken = address(dai);
+        targetToken = address(usdt);
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
@@ -357,7 +357,7 @@ contract StrategyCurveaTricrypto is StrategyCurveBase {
 
         // check for WETH balance, if it's not our targetToken then swap it
         uint256 wethBalance = weth.balanceOf(address(this));
-        if (wethBalance > 0 && optimal != 4) {
+        if (wethBalance > 0) {
             address[] memory tokenPath = new address[](2);
             tokenPath[0] = address(weth);
             tokenPath[1] = address(targetToken);

@@ -70,7 +70,7 @@ def test_setters(
     chain.sleep(86400)
 
     zero = "0x0000000000000000000000000000000000000000"
-    
+
     with brownie.reverts():
         strategy.setOptimal(4, {"from": gov})
     with brownie.reverts():
