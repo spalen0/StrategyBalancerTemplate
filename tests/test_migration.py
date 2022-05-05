@@ -5,7 +5,7 @@ import math
 
 
 def test_migration(
-    StrategyCurveEURSUSDC,
+    StrategyCurveETHLP,
     gov,
     token,
     vault,
@@ -21,8 +21,6 @@ def test_migration(
     pool,
     strategy_name,
     gauge,
-    has_rewards,
-    rewards_token,
 ):
 
     ## deposit to the vault after approving
@@ -34,7 +32,7 @@ def test_migration(
 
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurveEURSUSDC,
+        StrategyCurveETHLP,
         vault,
         strategy_name,
     )

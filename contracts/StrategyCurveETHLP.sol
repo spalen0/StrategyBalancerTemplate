@@ -42,21 +42,18 @@ abstract contract StrategyCurveBase is BaseStrategy {
     using SafeMath for uint256;
 
     /* ========== STATE VARIABLES ========== */
-    // these should stay the same across different wants.
+    // these should stay the same across different templates.
 
     // curve infrastructure contracts
     ICurveStrategyProxy public proxy =
         ICurveStrategyProxy(0xA420A63BbEFfbda3B147d0585F1852C358e2C152); // Yearn's Updated v4 StrategyProxy
-    address public constant gauge = 0x65CA7Dc5CB661fC58De57B1E1aF404649a27AD35; // Curve gauge contract, most are tokenized, held by Yearn's voter
+    address public gauge; // Curve gauge contract, most are tokenized, held by Yearn's voter
+    ICurveFi public curve; // This is our pool specific to this vault.
 
     // keepCRV stuff
-    uint256 public keepCRV = 1000; // the percentage of CRV we re-lock for boost (in basis points)
+    uint256 public keepCRV; // the percentage of CRV we re-lock for boost (in basis points)
     uint256 internal constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in basis points
     address public constant voter = 0xF147b8125d2ef93FB6965Db97D6746952a133934; // Yearn's veCRV voter
-
-    // swap stuff
-    address internal constant sushiswap =
-        0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F; // default to sushiswap, more CRV liquidity there
 
     IERC20 internal constant crv =
         IERC20(0xD533a949740bb3306d119CC777fa900bA034cd52);
@@ -140,9 +137,9 @@ abstract contract StrategyCurveBase is BaseStrategy {
     }
 
     function prepareMigration(address _newStrategy) internal override {
-        uint256 _stakedBal = stakedBalance();
-        if (_stakedBal > 0) {
-            proxy.withdraw(gauge, address(want), _stakedBal);
+        uint256 stakedBal = stakedBalance();
+        if (stakedBal > 0) {
+            proxy.withdraw(gauge, address(want), stakedBal);
         }
     }
 
@@ -177,32 +174,98 @@ abstract contract StrategyCurveBase is BaseStrategy {
     }
 }
 
-contract StrategyCurveEURSUSDC is StrategyCurveBase {
+contract StrategyCurveETHLP is StrategyCurveBase {
     /* ========== STATE VARIABLES ========== */
-    // these will likely change across different wants.
+    // these will likely change across different templates.
 
-    // Curve stuff
-    ICurveFi public constant curve =
-        ICurveFi(0x98a7F18d4E56Cfe84E3D081B40001B3d5bD3eB8B); // This is our pool specific to this vault.
+    // use Curve to sell our CRV rewards to WETH
+    ICurveFi internal constant crveth =
+        ICurveFi(0x8301AE4fc9c624d1D396cbDAa1ed877821D7C511); // use curve's new CRV-ETH crypto pool to sell our CRV
 
-    // we use these to deposit to our curve pool
-    uint256 public optimal; // this is the optimal token to deposit back to our curve pool. 0 USDC, 1 EURS
-    IERC20 internal constant usdc =
-        IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
-    address internal constant uniswapv3 =
-        address(0xE592427A0AEce92De3Edee1F18E0157C05861564);
-    IERC20 internal constant eurs =
-        IERC20(0xdB25f211AB05b1c97D595516F45794528a807ad8);
-    uint24 public uniCrvFee; // this is equal to 1%, can change this later if a different path becomes more optimal
-    uint24 public uniUsdcFee; // this is equal to 0.05%, can change this later if a different path becomes more optimal
-    uint24 public uniEursFee; // this is equal to 0.05%, can change this later if a different path becomes more optimal
+    uint256 public creditThreshold; // amount of credit in underlying tokens that will automatically trigger a harvest
+
+    // check for cloning
+    bool internal isOriginal = true;
 
     /* ========== CONSTRUCTOR ========== */
 
-    constructor(address _vault, string memory _name)
-        public
-        StrategyCurveBase(_vault)
-    {
+    constructor(
+        address _vault,
+        address _gauge,
+        address _curvePool,
+        string memory _name
+    ) public StrategyCurveBase(_vault) {
+        _initializeStrat(_gauge, _curvePool, _name);
+    }
+
+    /* ========== CLONING ========== */
+
+    event Cloned(address indexed clone);
+
+    // we use this to clone our original strategy to other vaults
+    function cloneCurveETHLP(
+        address _vault,
+        address _strategist,
+        address _rewards,
+        address _keeper,
+        address _gauge,
+        address _curvePool,
+        string memory _name
+    ) external returns (address newStrategy) {
+        require(isOriginal);
+        // Copied from https://github.com/optionality/clone-factory/blob/master/contracts/CloneFactory.sol
+        bytes20 addressBytes = bytes20(address(this));
+        assembly {
+            // EIP-1167 bytecode
+            let clone_code := mload(0x40)
+            mstore(
+                clone_code,
+                0x3d602d80600a3d3981f3363d3d373d3d3d363d73000000000000000000000000
+            )
+            mstore(add(clone_code, 0x14), addressBytes)
+            mstore(
+                add(clone_code, 0x28),
+                0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000
+            )
+            newStrategy := create(0, clone_code, 0x37)
+        }
+
+        StrategyCurveETHLP(newStrategy).initialize(
+            _vault,
+            _strategist,
+            _rewards,
+            _keeper,
+            _gauge,
+            _curvePool,
+            _name
+        );
+
+        emit Cloned(newStrategy);
+    }
+
+    // this will only be called by the clone function above
+    function initialize(
+        address _vault,
+        address _strategist,
+        address _rewards,
+        address _keeper,
+        address _gauge,
+        address _curvePool,
+        string memory _name
+    ) public {
+        _initialize(_vault, _strategist, _rewards, _keeper);
+        _initializeStrat(_gauge, _curvePool, _name);
+    }
+
+    // this is called by our original strategy, as well as any clones
+    function _initializeStrat(
+        address _gauge,
+        address _curvePool,
+        string memory _name
+    ) internal {
+        // make sure that we haven't initialized this before
+        require(address(curve) == address(0)); // already initialized.
+
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 7 days; // 7 days in seconds
         minReportDelay = 3 days; // 3 days in seconds
@@ -210,7 +273,7 @@ contract StrategyCurveEURSUSDC is StrategyCurveBase {
 
         // these are our standard approvals. want = Curve LP token
         want.approve(address(proxy), type(uint256).max);
-        crv.approve(uniswapv3, type(uint256).max);
+        crv.approve(address(crveth), type(uint256).max);
 
         // set our keepCRV
         keepCRV = 1000;
@@ -218,19 +281,19 @@ contract StrategyCurveEURSUSDC is StrategyCurveBase {
         // set our strategy's name
         stratName = _name;
 
-        // these are our approvals and path specific to this contract
-        usdc.approve(address(curve), type(uint256).max);
-        eurs.approve(address(curve), type(uint256).max);
+        // this is the pool and gauge specific to this vault
+        curve = ICurveFi(_curvePool);
+        gauge = address(_gauge);
 
-        // set our uniswap pool fees
-        uniCrvFee = 10000;
-        uniUsdcFee = 500;
-        uniEursFee = 500;
+        // set our strategy's name
+        stratName = _name;
+
+        // these are our approvals and path specific to this contract
+        weth.approve(address(curve), type(uint256).max);
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
     // these will likely change across different wants.
-
     function prepareReturn(uint256 _debtOutstanding)
         internal
         override
@@ -241,52 +304,45 @@ contract StrategyCurveEURSUSDC is StrategyCurveBase {
         )
     {
         // if we have anything in the gauge, then harvest CRV from the gauge
-        uint256 _stakedBal = stakedBalance();
-        if (_stakedBal > 0) {
+        uint256 stakedBal = stakedBalance();
+        if (stakedBal > 0) {
             proxy.harvest(gauge);
-            uint256 _crvBalance = crv.balanceOf(address(this));
-            // if we claimed any CRV, then sell it
-            if (_crvBalance > 0) {
-                // keep some of our CRV to increase our boost
-                uint256 _sendToVoter =
-                    _crvBalance.mul(keepCRV).div(FEE_DENOMINATOR);
-                if (keepCRV > 0) {
-                    crv.safeTransfer(voter, _sendToVoter);
-                }
-                uint256 _crvRemainder = _crvBalance.sub(_sendToVoter);
+        }
 
-                // sell the rest of our CRV
-                if (_crvRemainder > 0) {
-                    _sell(_crvRemainder);
-                }
-
-                // deposit our balance to Curve if we have any
-                if (optimal == 0) {
-                    uint256 usdcBalance = usdc.balanceOf(address(this));
-                    if (usdcBalance > 0) {
-                        curve.add_liquidity([usdcBalance, 0], 0);
-                    }
-                } else {
-                    uint256 eursBalance = eurs.balanceOf(address(this));
-                    if (eursBalance > 0) {
-                        curve.add_liquidity([0, eursBalance], 0);
-                    }
-                }
+        uint256 crvBalance = crv.balanceOf(address(this));
+        // if we have any CRV, then sell it
+        if (crvBalance > 0) {
+            // keep some of our CRV to increase our boost
+            uint256 sendToVoter = crvBalance.mul(keepCRV).div(FEE_DENOMINATOR);
+            if (sendToVoter > 0) {
+                crv.safeTransfer(voter, sendToVoter);
             }
+            uint256 crvRemainder = crv.balanceOf(address(this));
+
+            // sell the rest of our CRV
+            if (crvRemainder > 0) {
+                _sellCrv(crvRemainder);
+            }
+        }
+
+        // deposit our balance to Curve if we have any
+        uint256 wethBalance = weth.balanceOf(address(this));
+        if (wethBalance > 0) {
+            curve.add_liquidity([wethBalance, 0], 0, false);
         }
 
         // debtOustanding will only be > 0 in the event of revoking or if we need to rebalance from a withdrawal or lowering the debtRatio
         if (_debtOutstanding > 0) {
-            if (_stakedBal > 0) {
+            if (stakedBal > 0) {
                 // don't bother withdrawing if we don't have staked funds
                 proxy.withdraw(
                     gauge,
                     address(want),
-                    Math.min(_stakedBal, _debtOutstanding)
+                    Math.min(stakedBal, _debtOutstanding)
                 );
             }
-            uint256 _withdrawnBal = balanceOfWant();
-            _debtPayment = Math.min(_debtOutstanding, _withdrawnBal);
+            uint256 withdrawnBal = balanceOfWant();
+            _debtPayment = Math.min(_debtOutstanding, withdrawnBal);
         }
 
         // serious loss should never happen, but if it does (for instance, if Curve is hacked), let's record it accurately
@@ -311,42 +367,10 @@ contract StrategyCurveEURSUSDC is StrategyCurveBase {
         forceHarvestTriggerOnce = false;
     }
 
-    // Sells our CRV -> WETH -> USDC or on to EURS
-    function _sell(uint256 _crvAmount) internal {
-        if (optimal == 0) {
-            IUniV3(uniswapv3).exactInput(
-                IUniV3.ExactInputParams(
-                    abi.encodePacked(
-                        address(crv),
-                        uint24(uniCrvFee),
-                        address(weth),
-                        uint24(uniUsdcFee),
-                        address(usdc)
-                    ),
-                    address(this),
-                    block.timestamp,
-                    _crvAmount,
-                    uint256(1)
-                )
-            );
-        } else {
-            IUniV3(uniswapv3).exactInput(
-                IUniV3.ExactInputParams(
-                    abi.encodePacked(
-                        address(crv),
-                        uint24(uniCrvFee),
-                        address(weth),
-                        uint24(uniUsdcFee),
-                        address(usdc),
-                        uint24(uniEursFee),
-                        address(eurs)
-                    ),
-                    address(this),
-                    block.timestamp,
-                    _crvAmount,
-                    uint256(1)
-                )
-            );
+    // Sells our CRV -> WETH
+    function _sellCrv(uint256 _crvAmount) internal {
+        if (_crvAmount > 0) {
+            crveth.exchange(1, 0, _crvAmount, 0, false);
         }
     }
 
@@ -358,8 +382,12 @@ contract StrategyCurveEURSUSDC is StrategyCurveBase {
         override
         returns (bool)
     {
-        StrategyParams memory params = vault.strategies(address(this));
+        // Should not trigger if strategy is not active (no assets and no debtRatio). This means we don't need to adjust keeper job.
+        if (!isActive()) {
+            return false;
+        }
 
+        StrategyParams memory params = vault.strategies(address(this));
         // harvest no matter what once we reach our maxDelay
         if (block.timestamp.sub(params.lastReport) > maxReportDelay) {
             return true;
@@ -377,6 +405,11 @@ contract StrategyCurveEURSUSDC is StrategyCurveBase {
 
         // harvest if we hit our minDelay, but only if our gas price is acceptable
         if (block.timestamp.sub(params.lastReport) > minReportDelay) {
+            return true;
+        }
+
+        // harvest our credit if it's above our threshold
+        if (vault.creditAvailable() > creditThreshold) {
             return true;
         }
 
@@ -403,27 +436,11 @@ contract StrategyCurveEURSUSDC is StrategyCurveBase {
 
     /* ========== SETTERS ========== */
 
-    // These functions are useful for setting parameters of the strategy that may need to be adjusted.
-    // Set optimal token to sell harvested funds for depositing to Curve.
-    // Default is USDC, but can be set to EURS as needed by strategist or governance.
-    function setOptimal(uint256 _optimal) external onlyAuthorized {
-        if (_optimal == 0) {
-            optimal = 0;
-        } else if (_optimal == 1) {
-            optimal = 1;
-        } else {
-            revert("incorrect token");
-        }
-    }
-
-    // set the fee pool we'd like to swap through for CRV on UniV3 (1% = 10_000)
-    function setUniFees(
-        uint24 _crvFee,
-        uint24 _usdcFee,
-        uint24 _eursFee
-    ) external onlyAuthorized {
-        uniCrvFee = _crvFee;
-        uniUsdcFee = _usdcFee;
-        uniEursFee = _eursFee;
+    // Credit threshold is in want token, and will trigger a harvest if credit is large enough.
+    function setCreditThreshold(uint256 _creditThreshold)
+        external
+        onlyEmergencyAuthorized
+    {
+        creditThreshold = _creditThreshold;
     }
 }

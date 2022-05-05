@@ -15,7 +15,7 @@ def test_odds_and_ends(
     strategist_ms,
     voter,
     gauge,
-    StrategyCurveEURSUSDC,
+    StrategyCurveETHLP,
     amount,
     pool,
     strategy_name,
@@ -58,7 +58,7 @@ def test_odds_and_ends(
     # we can try to migrate too, lol
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurveEURSUSDC,
+        StrategyCurveETHLP,
         vault,
         strategy_name,
     )
@@ -145,7 +145,7 @@ def test_odds_and_ends_2(
 
 
 def test_odds_and_ends_migration(
-    StrategyCurveEURSUSDC,
+    StrategyCurveETHLP,
     gov,
     token,
     vault,
@@ -173,7 +173,7 @@ def test_odds_and_ends_migration(
 
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurveEURSUSDC,
+        StrategyCurveETHLP,
         vault,
         strategy_name,
     )
@@ -411,7 +411,6 @@ def test_odds_and_ends_inactive_strat(
     chain,
     strategist_ms,
     voter,
-    cvxDeposit,
     amount,
 ):
     ## deposit to the vault after approving
@@ -431,47 +430,3 @@ def test_odds_and_ends_inactive_strat(
     tx = strategy.harvestTrigger(0, {"from": gov})
     print("\nShould we harvest? Should be false.", tx)
     assert tx == False
-
-
-# this one tests if we don't have any CRV to send to voter or any left over after sending
-def test_odds_and_ends_weird_amounts(
-    gov,
-    token,
-    vault,
-    strategist,
-    whale,
-    strategy,
-    chain,
-    strategist_ms,
-    voter,
-    amount,
-):
-
-    ## deposit to the vault after approving
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
-    vault.deposit(amount, {"from": whale})
-    strategy.harvest({"from": gov})
-
-    # sleep for a day to get some profit
-    chain.sleep(86400)
-    chain.mine(1)
-
-    # take 100% of our CRV to the voter
-    strategy.setKeepCRV(10000, {"from": gov})
-    strategy.harvest({"from": gov})
-
-    # sleep for a day to get some profit
-    chain.sleep(86400)
-    chain.mine(1)
-
-    # switch to FRAX, want to not have any profit tho
-    strategy.setOptimal(1, {"from": gov})
-    strategy.harvest({"from": gov})
-
-    # sleep for a day to get some profit
-    chain.sleep(86400)
-    chain.mine(1)
-
-    # take 0% of our CRV to the voter
-    strategy.setKeepCRV(0, {"from": gov})
-    strategy.harvest({"from": gov})
