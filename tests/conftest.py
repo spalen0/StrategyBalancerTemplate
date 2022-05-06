@@ -11,21 +11,21 @@ def isolation(fn_isolation):
 def whale(accounts):
     # Totally in it for the tech
     # Update this with a large holder of your want token (the largest EOA holder of LP)
-    whale = accounts.at("0xe1Bf2277E023184d412E00C13022012cc7b06aba", force=True)
+    whale = accounts.at("0xfF4ec6D1B54C18Ab28CB2ba460D9d04b865C06e7", force=True)
     yield whale
 
 
 # this is the amount of funds we have our whale deposit. adjust this as needed based on their wallet balance
 @pytest.fixture(scope="module")
 def amount():
-    amount = 50_000e18
+    amount = 3_000e18
     yield amount
 
 
 # this is the name we want to give our strategy
 @pytest.fixture(scope="module")
 def strategy_name():
-    strategy_name = "StrategyCurveGeist"
+    strategy_name = "StrategyCurve4pool"
     yield strategy_name
 
 
@@ -62,7 +62,7 @@ def healthCheck():
 @pytest.fixture(scope="module")
 def token():
     # this should be the address of the ERC-20 used by the strategy/vault
-    token_address = "0xD02a30d33153877BC20e5721ee53DeDEE0422B2F"
+    token_address = "0x9dc516a18775d492c9f061211C8a3FDCd476558d"
     yield Contract(token_address)
 
 
@@ -76,15 +76,14 @@ def zero_address():
 # gauge for the curve pool
 @pytest.fixture(scope="module")
 def gauge():
-    # this should be the address of the convex deposit token
-    gauge = "0xd4F94D0aaa640BBb72b5EEc2D85F6D114D81a88E"
+    gauge = "0xd0698b2E41C42bcE42B51f977F962Fd127cF82eA"
     yield Contract(gauge)
 
 
 # curve deposit pool
 @pytest.fixture(scope="module")
 def pool():
-    poolAddress = Contract("0x0fa949783947Bf6c1b171DB13AEACBB488845B3f")
+    poolAddress = Contract("0x9dc516a18775d492c9f061211C8a3FDCd476558d")
     yield poolAddress
 
 
@@ -155,7 +154,7 @@ def vault(pm, gov, rewards, guardian, management, token, chain):
 # replace the first value with the name of your strategy
 @pytest.fixture(scope="function")
 def strategy(
-    StrategyCurveGeist,
+    StrategyCurve4pool,
     strategist,
     keeper,
     vault,
@@ -171,7 +170,7 @@ def strategy(
 ):
     # make sure to include all constructor parameters needed here
     strategy = strategist.deploy(
-        StrategyCurveGeist,
+        StrategyCurve4pool,
         vault,
         strategy_name,
     )

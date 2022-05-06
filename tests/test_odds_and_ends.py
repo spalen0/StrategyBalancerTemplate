@@ -15,7 +15,7 @@ def test_odds_and_ends(
     strategist_ms,
     voter,
     gauge,
-    StrategyCurveGeist,
+    StrategyCurve4pool,
     amount,
     pool,
     strategy_name,
@@ -57,7 +57,7 @@ def test_odds_and_ends(
     # we can try to migrate too, lol
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurveGeist,
+        StrategyCurve4pool,
         vault,
         strategy_name,
     )
@@ -144,7 +144,7 @@ def test_odds_and_ends_2(
 
 
 def test_odds_and_ends_migration(
-    StrategyCurveGeist,
+    StrategyCurve4pool,
     gov,
     token,
     vault,
@@ -169,7 +169,7 @@ def test_odds_and_ends_migration(
 
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurveGeist,
+        StrategyCurve4pool,
         vault,
         strategy_name,
     )
@@ -444,7 +444,7 @@ def test_odds_and_ends_weird_amounts(
     vault.deposit(amount, {"from": whale})
     strategy.harvest({"from": gov})
 
-    # switch to DAI, want to not have any profit tho
+    # switch to USDC, want to not have any profit tho
     strategy.setOptimal(0, {"from": gov})
 
     # sleep for a day to get some profit
@@ -459,16 +459,8 @@ def test_odds_and_ends_weird_amounts(
     chain.sleep(86400)
     chain.mine(1)
 
-    # switch to USDC, want to not have any profit tho
-    strategy.setOptimal(1, {"from": gov})
-    strategy.harvest({"from": gov})
-
-    # sleep for a day to get some profit
-    chain.sleep(86400)
-    chain.mine(1)
-
     # switch to fUSDT, want to not have any profit tho
-    strategy.setOptimal(2, {"from": gov})
+    strategy.setOptimal(1, {"from": gov})
     strategy.harvest({"from": gov})
 
     # sleep for a day to get some profit

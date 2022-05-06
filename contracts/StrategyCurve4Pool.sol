@@ -17,25 +17,6 @@ import {
     StrategyParams
 } from "@yearnvaults/contracts/BaseStrategy.sol";
 
-interface IBaseFee {
-    function isCurrentBaseFeeAcceptable() external view returns (bool);
-}
-
-interface IUniV3 {
-    struct ExactInputParams {
-        bytes path;
-        address recipient;
-        uint256 deadline;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
-    }
-
-    function exactInput(ExactInputParams calldata params)
-        external
-        payable
-        returns (uint256 amountOut);
-}
-
 abstract contract StrategyCurveBase is BaseStrategy {
     using SafeERC20 for IERC20;
     using Address for address;
@@ -46,16 +27,14 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
     // Curve stuff
     IGauge public constant gauge =
-        IGauge(0xd4F94D0aaa640BBb72b5EEc2D85F6D114D81a88E); // Curve gauge contract, most are tokenized, held by strategy
+        IGauge(0xd0698b2E41C42bcE42B51f977F962Fd127cF82eA); // Curve gauge contract, most are tokenized, held by strategy
 
     // keepCRV stuff
     uint256 public keepCRV; // the percentage of CRV we re-lock for boost (in basis points)
     uint256 internal constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in basis points
 
-    IERC20 public constant crv =
+    IERC20 internal constant crv =
         IERC20(0x1E4F97b9f9F913c46F1632781732927B9019C68b);
-    IERC20 public constant wftm =
-        IERC20(0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83);
 
     bool internal forceHarvestTriggerOnce; // only set this to true externally when we want to trigger our keepers to harvest for us
 
@@ -149,7 +128,7 @@ abstract contract StrategyCurveBase is BaseStrategy {
     // These functions are useful for setting parameters of the strategy that may need to be adjusted.
 
     // Set the amount of CRV to be locked in Yearn's veCRV voter from each harvest. Default is 10%.
-    function setKeepCRV(uint256 _keepCRV) external onlyAuthorized {
+    function setKeepCRV(uint256 _keepCRV) external onlyVaultManagers {
         require(_keepCRV <= 10_000);
         keepCRV = _keepCRV;
     }
@@ -157,30 +136,26 @@ abstract contract StrategyCurveBase is BaseStrategy {
     // This allows us to manually harvest with our keeper as needed
     function setForceHarvestTriggerOnce(bool _forceHarvestTriggerOnce)
         external
-        onlyAuthorized
+        onlyVaultManagers
     {
         forceHarvestTriggerOnce = _forceHarvestTriggerOnce;
     }
 }
 
-contract StrategyCurveGeist is StrategyCurveBase {
+contract StrategyCurve4pool is StrategyCurveBase {
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
 
     // Curve stuff
     ICurveFi public constant curve =
-        ICurveFi(0x0fa949783947Bf6c1b171DB13AEACBB488845B3f); // This is our pool specific to this vault.
+        ICurveFi(0x9dc516a18775d492c9f061211C8a3FDCd476558d); // This is our pool specific to this vault.
 
     // we use these to deposit to our curve pool
     address public targetToken; // this is the token we sell into, DAI, USDC, or fUSDT
-    IERC20 public constant usdc =
+    IERC20 internal constant usdc =
         IERC20(0x04068DA6C83AFCFA0e13ba15A6696662335D5B75);
-    IERC20 public constant dai =
-        IERC20(0x8D11eC38a3EB5E956B052f67Da8Bdc9bef8Abf3E);
-    IERC20 public constant fusdt =
+    IERC20 internal constant fusdt =
         IERC20(0x049d68029688eAbF473097a2fC38ef61633A3C7A);
-    IERC20 public constant geist =
-        IERC20(0xd8321AA83Fb0a4ECd6348D4577431310A6E0814d);
     IUniswapV2Router02 public router =
         IUniswapV2Router02(0xF491e7B69E4244ad4002BC14e878a34207E38c29); // this is the router we swap with, start with spookyswap
 
@@ -201,17 +176,12 @@ contract StrategyCurveGeist is StrategyCurveBase {
         address spirit = 0x16327E3FbDaCA3bcF7E38F5Af2599D2DDc33aE52;
         want.approve(address(gauge), type(uint256).max);
         crv.approve(spooky, type(uint256).max);
-        wftm.approve(spooky, type(uint256).max);
-        geist.approve(spooky, type(uint256).max);
         crv.approve(spirit, type(uint256).max);
-        wftm.approve(spirit, type(uint256).max);
-        geist.approve(spirit, type(uint256).max);
 
         // set our strategy's name
         stratName = _name;
 
         // these are our approvals and path specific to this contract
-        dai.approve(address(curve), type(uint256).max);
         usdc.approve(address(curve), type(uint256).max);
         fusdt.safeApprove(address(curve), type(uint256).max);
 
@@ -234,8 +204,6 @@ contract StrategyCurveGeist is StrategyCurveBase {
         // harvest our rewards from the gauge
         gauge.claim_rewards();
         uint256 crvBalance = crv.balanceOf(address(this));
-        uint256 wftmBalance = wftm.balanceOf(address(this));
-        uint256 geistBalance = geist.balanceOf(address(this));
         // if we claimed any CRV, then sell it
         if (crvBalance > 0) {
             // keep some of our CRV to increase our boost
@@ -249,30 +217,16 @@ contract StrategyCurveGeist is StrategyCurveBase {
 
             // sell the rest of our CRV
             if (crvBalance > 0) {
-                _sellToken(address(crv), crvBalance);
+                _sellToken(crvBalance);
             }
         }
-        // sell WFTM if we have any
-        if (wftmBalance > 0) {
-            _sellToken(address(wftm), wftmBalance);
-        }
 
-        // sell the rest of our CRV
-        if (geistBalance > 0) {
-            _sellToken(address(geist), geistBalance);
-        }
-
-        uint256 daiBalance = dai.balanceOf(address(this));
         uint256 usdcBalance = usdc.balanceOf(address(this));
         uint256 fusdtBalance = fusdt.balanceOf(address(this));
 
         // deposit our balance to Curve if we have any
-        if (daiBalance > 0 || usdcBalance > 0 || fusdtBalance > 0) {
-            curve.add_liquidity(
-                [daiBalance, usdcBalance, fusdtBalance],
-                0,
-                true
-            );
+        if (usdcBalance > 0 || fusdtBalance > 0) {
+            curve.add_liquidity([0, usdcBalance, 0, fusdtBalance], 0);
         }
 
         // debtOustanding will only be > 0 in the event of revoking or if we need to rebalance from a withdrawal or lowering the debtRatio
@@ -308,32 +262,22 @@ contract StrategyCurveGeist is StrategyCurveBase {
         forceHarvestTriggerOnce = false;
     }
 
-    // Sells our CRV, WFTM, or GEIST for our target token
-    function _sellToken(address token, uint256 _amount) internal {
-        if (token == address(wftm)) {
-            address[] memory tokenPath = new address[](2);
-            tokenPath[0] = address(wftm);
-            tokenPath[1] = address(targetToken);
-            IUniswapV2Router02(router).swapExactTokensForTokens(
-                _amount,
-                uint256(0),
-                tokenPath,
-                address(this),
-                block.timestamp
-            );
-        } else {
-            address[] memory tokenPath = new address[](3);
-            tokenPath[0] = address(token);
-            tokenPath[1] = address(wftm);
-            tokenPath[2] = address(targetToken);
-            IUniswapV2Router02(router).swapExactTokensForTokens(
-                _amount,
-                uint256(0),
-                tokenPath,
-                address(this),
-                block.timestamp
-            );
-        }
+    // Sells our CRV for our target token
+    function _sellToken(uint256 _amount) internal {
+        // we only use WFTM here, no need to keep it in storage
+        address wftm = 0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83;
+
+        address[] memory tokenPath = new address[](3);
+        tokenPath[0] = address(crv);
+        tokenPath[1] = wftm;
+        tokenPath[2] = address(targetToken);
+        IUniswapV2Router02(router).swapExactTokensForTokens(
+            _amount,
+            uint256(0),
+            tokenPath,
+            address(this),
+            block.timestamp
+        );
     }
 
     /* ========== KEEP3RS ========== */
@@ -366,21 +310,17 @@ contract StrategyCurveGeist is StrategyCurveBase {
         view
         override
         returns (uint256)
-    {
-        return _ethAmount;
-    }
+    {}
 
     /* ========== SETTERS ========== */
 
     // These functions are useful for setting parameters of the strategy that may need to be adjusted.
     // Set optimal token to sell harvested funds for depositing to Curve.
-    // Default is fUSDT, but can be set to USDC or DAI as needed by strategist or governance.
-    function setOptimal(uint256 _optimal) external onlyAuthorized {
+    // Default is USDC, but can be set to fUSDT as needed by strategist or governance.
+    function setOptimal(uint256 _optimal) external onlyVaultManagers {
         if (_optimal == 0) {
-            targetToken = address(dai);
-        } else if (_optimal == 1) {
             targetToken = address(usdc);
-        } else if (_optimal == 2) {
+        } else if (_optimal == 1) {
             targetToken = address(fusdt);
         } else {
             revert("incorrect token");
@@ -388,7 +328,7 @@ contract StrategyCurveGeist is StrategyCurveBase {
     }
 
     // spookyswap generally has better liquidity. if this changes, we can use spiritswap.
-    function setUseSpooky(bool useSpooky) external onlyAuthorized {
+    function setUseSpooky(bool useSpooky) external onlyVaultManagers {
         if (useSpooky) {
             router = IUniswapV2Router02(
                 0xF491e7B69E4244ad4002BC14e878a34207E38c29
