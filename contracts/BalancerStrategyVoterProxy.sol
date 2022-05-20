@@ -2,7 +2,12 @@
 pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
 
-import {SafeERC20, SafeMath, IERC20, Address} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import {
+    SafeERC20,
+    SafeMath,
+    IERC20,
+    Address
+} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Math} from "@openzeppelin/contracts/math/Math.sol";
 
@@ -31,9 +36,12 @@ contract BalancerStrategyVoterProxy {
 
     IBalancerVoter public voter;
 
-    address public constant balMinter = address(0x239e55F427D44C3cc793f49bFB507ebe76638a2b);
-    address public constant bal = address(0xba100000625a3754423978a60c9317c58a424e3D);
-    address public constant gauge = address(0xC128468b7Ce63eA702C1f104D55A2566b13D3ABD); // Gauge controller
+    address public constant balMinter =
+        address(0x239e55F427D44C3cc793f49bFB507ebe76638a2b);
+    address public constant bal =
+        address(0xba100000625a3754423978a60c9317c58a424e3D);
+    address public constant gauge =
+        address(0xC128468b7Ce63eA702C1f104D55A2566b13D3ABD); // Gauge controller
 
     // gauge => strategies
     mapping(address => address) public strategies;
@@ -99,14 +107,22 @@ contract BalancerStrategyVoterProxy {
         voter.increaseAmountMax(true);
     }
 
-    function convertAndLockExact(uint _amount) external {
+    function convertAndLockExact(uint256 _amount) external {
         require(lockers[msg.sender], "!approved");
         if (_amount > 0) voter.increaseAmountExact(_amount, true);
     }
 
     function vote(address _gauge, uint256 _amount) public {
         require(voters[msg.sender], "!voter");
-        voter.safeExecute(gauge, 0, abi.encodeWithSignature("vote_for_gauge_weights(address,uint256)", _gauge, _amount));
+        voter.safeExecute(
+            gauge,
+            0,
+            abi.encodeWithSignature(
+                "vote_for_gauge_weights(address,uint256)",
+                _gauge,
+                _amount
+            )
+        );
     }
 
     function withdraw(
@@ -116,9 +132,21 @@ contract BalancerStrategyVoterProxy {
     ) public returns (uint256) {
         require(strategies[_gauge] == msg.sender, "!strategy");
         uint256 _balance = IERC20(_token).balanceOf(address(voter));
-        voter.safeExecute(_gauge, 0, abi.encodeWithSignature("withdraw(uint256)", _amount));
+        voter.safeExecute(
+            _gauge,
+            0,
+            abi.encodeWithSignature("withdraw(uint256)", _amount)
+        );
         _balance = IERC20(_token).balanceOf(address(voter)).sub(_balance);
-        voter.safeExecute(_token, 0, abi.encodeWithSignature("transfer(address,uint256)", msg.sender, _balance));
+        voter.safeExecute(
+            _token,
+            0,
+            abi.encodeWithSignature(
+                "transfer(address,uint256)",
+                msg.sender,
+                _balance
+            )
+        );
         return _balance;
     }
 
@@ -126,7 +154,10 @@ contract BalancerStrategyVoterProxy {
         return IERC20(_gauge).balanceOf(address(voter));
     }
 
-    function withdrawAll(address _gauge, address _token) external returns (uint256) {
+    function withdrawAll(address _gauge, address _token)
+        external
+        returns (uint256)
+    {
         require(strategies[_gauge] == msg.sender, "!strategy");
         return withdraw(_gauge, _token, balanceOf(_gauge));
     }
@@ -137,23 +168,59 @@ contract BalancerStrategyVoterProxy {
         IERC20(_token).safeTransfer(address(voter), _balance);
         _balance = IERC20(_token).balanceOf(address(voter));
 
-        voter.safeExecute(_token, 0, abi.encodeWithSignature("approve(address,uint256)", _gauge, 0));
-        voter.safeExecute(_token, 0, abi.encodeWithSignature("approve(address,uint256)", _gauge, _balance));
-        voter.safeExecute(_gauge, 0, abi.encodeWithSignature("deposit(uint256)", _balance));
+        voter.safeExecute(
+            _token,
+            0,
+            abi.encodeWithSignature("approve(address,uint256)", _gauge, 0)
+        );
+        voter.safeExecute(
+            _token,
+            0,
+            abi.encodeWithSignature(
+                "approve(address,uint256)",
+                _gauge,
+                _balance
+            )
+        );
+        voter.safeExecute(
+            _gauge,
+            0,
+            abi.encodeWithSignature("deposit(uint256)", _balance)
+        );
     }
 
     function harvest(address _gauge) external {
         require(strategies[_gauge] == msg.sender, "!strategy");
         uint256 _balance = IERC20(bal).balanceOf(address(voter));
-        voter.safeExecute(balMinter, 0, abi.encodeWithSignature("mint(address)", _gauge));
+        voter.safeExecute(
+            balMinter,
+            0,
+            abi.encodeWithSignature("mint(address)", _gauge)
+        );
         _balance = (IERC20(bal).balanceOf(address(voter))).sub(_balance);
-        voter.safeExecute(bal, 0, abi.encodeWithSignature("transfer(address,uint256)", msg.sender, _balance));
+        voter.safeExecute(
+            bal,
+            0,
+            abi.encodeWithSignature(
+                "transfer(address,uint256)",
+                msg.sender,
+                _balance
+            )
+        );
     }
 
     function claimRewards(address _gauge, address _token) external {
         require(strategies[_gauge] == msg.sender, "!strategy");
         IGauge(_gauge).claim_rewards(address(voter));
-        voter.safeExecute(_token, 0, abi.encodeWithSignature("transfer(address,uint256)", msg.sender, IERC20(_token).balanceOf(address(voter))));
+        voter.safeExecute(
+            _token,
+            0,
+            abi.encodeWithSignature(
+                "transfer(address,uint256)",
+                msg.sender,
+                IERC20(_token).balanceOf(address(voter))
+            )
+        );
     }
 }
 

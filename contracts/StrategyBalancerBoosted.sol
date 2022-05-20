@@ -14,7 +14,10 @@ import {ITradeFactory} from "../interfaces/Yearn/ITradeFactory.sol";
 import {IStrategyVoterProxy} from "../interfaces/Yearn/IStrategyVoterProxy.sol";
 
 import {IPriceFeed} from "../interfaces/Liquity/IPriceFeed.sol"; // Liquity happens to have a good ETH/USD oracle aggregator
-import {IBalancerVault, IBalancerPool} from "../interfaces/Balancer/BalancerV2.sol";
+import {
+    IBalancerVault,
+    IBalancerPool
+} from "../interfaces/Balancer/BalancerV2.sol";
 
 abstract contract StrategyBalancerBase is BaseStrategy {
     using SafeERC20 for IERC20;
@@ -25,13 +28,13 @@ abstract contract StrategyBalancerBase is BaseStrategy {
     // these should stay the same across different wants.
 
     IStrategyVoterProxy public proxy;
-    address immutable public voter; // We don't need to call it, but we need to send BAL to it
+    address public immutable voter; // We don't need to call it, but we need to send BAL to it
     address public gauge; // Gauge that voter stakes in to recieve BAL rewards
 
-    address public tradeFactory = address(0); 
+    address public tradeFactory = address(0);
 
     // keepBAL stuff
-    uint256 public keepBAL = 1000; // the percentage of BAL that we re-lock for boost (in bips) 
+    uint256 public keepBAL = 1000; // the percentage of BAL that we re-lock for boost (in bips)
     uint256 public constant BIPS_DENOMINATOR = 10000; // 10k bips in 100%
 
     IERC20 public constant BAL =
@@ -39,7 +42,8 @@ abstract contract StrategyBalancerBase is BaseStrategy {
     IERC20 public constant WETH =
         IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
-    IBalancerVault public balancerVault = IBalancerVault(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
+    IBalancerVault public balancerVault =
+        IBalancerVault(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
 
     bool internal forceHarvestTriggerOnce; // only set this to true externally when we want to trigger our keepers to harvest for us
 
@@ -47,7 +51,11 @@ abstract contract StrategyBalancerBase is BaseStrategy {
 
     /* ========== CONSTRUCTOR ========== */
 
-    constructor(address _vault, address _proxy, address _voter) public BaseStrategy(_vault) {
+    constructor(
+        address _vault,
+        address _proxy,
+        address _voter
+    ) public BaseStrategy(_vault) {
         proxy = IStrategyVoterProxy(_proxy);
         voter = _voter;
     }
@@ -180,7 +188,6 @@ abstract contract StrategyBalancerBase is BaseStrategy {
 }
 
 contract StrategyBalancerBoostedPool is StrategyBalancerBase {
-
     // Chainlink ETH:USD with Tellor ETH:USD as fallback
     IPriceFeed internal constant priceFeed =
         IPriceFeed(0x4c517D4e2C851CA76d7eC94B805269Df0f2201De);
@@ -191,7 +198,10 @@ contract StrategyBalancerBoostedPool is StrategyBalancerBase {
         address _proxy,
         address _voter
     ) public StrategyBalancerBase(_vault, _proxy, _voter) {
-        require(address(want) == 0x7B50775383d3D6f0215A8F290f2C9e2eEBBEceb2, "!boosted_pool");
+        require(
+            address(want) == 0x7B50775383d3D6f0215A8F290f2C9e2eEBBEceb2,
+            "!boosted_pool"
+        );
         maxReportDelay = 7 days; // 7 days in seconds
         healthCheck = 0xDDCea799fF1699e98EDF118e0629A974Df7DF012; // health.ychad.eth
 
@@ -219,10 +229,12 @@ contract StrategyBalancerBoostedPool is StrategyBalancerBase {
         if (_stakedBalance > 0) {
             uint256 _balanceOfBalBeforeClaim = BAL.balanceOf(address(this));
             proxy.harvest(gauge);
-            uint256 _balClaimed = BAL.balanceOf(address(this)).sub(_balanceOfBalBeforeClaim);
+            uint256 _balClaimed =
+                BAL.balanceOf(address(this)).sub(_balanceOfBalBeforeClaim);
 
             if (_balClaimed > 0) {
-                uint256 _sendToVoter = _balClaimed.mul(keepBAL).div(BIPS_DENOMINATOR);
+                uint256 _sendToVoter =
+                    _balClaimed.mul(keepBAL).div(BIPS_DENOMINATOR);
 
                 if (_sendToVoter > 0) {
                     BAL.safeTransfer(voter, _sendToVoter);
@@ -298,8 +310,9 @@ contract StrategyBalancerBoostedPool is StrategyBalancerBase {
         override
         returns (uint256)
     {
-        uint256 _amountInUSD = _ethAmount.mul(priceFeed.lastGoodPrice()).div(1e18);
-        return _amountInUSD.mul(1e18).div(IBalancerPool(address(want)).getRate());
+        uint256 _amountInUSD =
+            _ethAmount.mul(priceFeed.lastGoodPrice()).div(1e18);
+        return
+            _amountInUSD.mul(1e18).div(IBalancerPool(address(want)).getRate());
     }
-
 }
