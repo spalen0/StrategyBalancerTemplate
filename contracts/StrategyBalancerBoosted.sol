@@ -9,16 +9,12 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/math/Math.sol";
 
-import {IUniswapV2Router02} from "./interfaces/uniswap.sol";
 import {BaseStrategy} from "@yearnvaults/contracts/BaseStrategy.sol";
+import {ITradeFactory} from "../interfaces/Yearn/ITradeFactory.sol";
 import {IStrategyVoterProxy} from "../interfaces/Yearn/IStrategyVoterProxy.sol";
+
 import {IPriceFeed} from "../interfaces/Liquity/IPriceFeed.sol"; // Liquity happens to have a good ETH/USD oracle aggregator
-
 import {IBalancerVault, IBalancerPool} from "../interfaces/Balancer/BalancerV2.sol";
-
-interface ILiquidityGaugeFactory {
-    function getPoolGauge(address pool) external view returns (address);
-}
 
 abstract contract StrategyBalancerBase is BaseStrategy {
     using SafeERC20 for IERC20;
@@ -30,7 +26,9 @@ abstract contract StrategyBalancerBase is BaseStrategy {
 
     IStrategyVoterProxy public proxy;
     address immutable public voter; // We don't need to call it, but we need to send BAL to it
-    address public gauge; // Gauge that voter stakes in to recieve BAL rewards 
+    address public gauge; // Gauge that voter stakes in to recieve BAL rewards
+
+    address public tradeFactory = address(0); 
 
     // keepBAL stuff
     uint256 public keepBAL = 1000; // the percentage of BAL that we re-lock for boost (in bips) 
@@ -42,7 +40,6 @@ abstract contract StrategyBalancerBase is BaseStrategy {
         IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     IBalancerVault public balancerVault = IBalancerVault(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
-    ILiquidityGaugeFactory public liquidityGaugeFactory = ILiquidityGaugeFactory(0x4E7bBd911cf1EFa442BC1b2e9Ea01ffE785412EC);
 
     bool internal forceHarvestTriggerOnce; // only set this to true externally when we want to trigger our keepers to harvest for us
 
@@ -201,7 +198,7 @@ contract StrategyBalancerBoostedPool is StrategyBalancerBase {
         // these are our standard approvals. want = Balancer LP token
         want.approve(address(proxy), type(uint256).max);
 
-        gauge = 0x68d019f64A7aa97e2D4e7363AEE42251D08124Fb;
+        gauge = 0x68d019f64A7aa97e2D4e7363AEE42251D08124Fb; // can be pulled from 0x4E7bBd911cf1EFa442BC1b2e9Ea01ffE785412EC
 
         stratName = _name;
     }
@@ -269,6 +266,28 @@ contract StrategyBalancerBoostedPool is StrategyBalancerBase {
         forceHarvestTriggerOnce = false;
     }
 
+    /* ========== YSWAPS ========== */
+
+    function setTradeFactory(address _tradeFactory) external onlyGovernance {
+        if (tradeFactory != address(0)) {
+            _removeTradeFactoryPermissions();
+        }
+
+        // approve and set up trade factory
+        BAL.safeApprove(_tradeFactory, type(uint256).max);
+        ITradeFactory tf = ITradeFactory(_tradeFactory);
+        tf.enable(address(BAL), address(want));
+        tradeFactory = _tradeFactory;
+    }
+
+    function removeTradeFactoryPermissions() external onlyEmergencyAuthorized {
+        _removeTradeFactoryPermissions();
+    }
+
+    function _removeTradeFactoryPermissions() internal {
+        BAL.safeApprove(tradeFactory, 0);
+        tradeFactory = address(0);
+    }
 
     /* ========== KEEP3RS ========== */
 
