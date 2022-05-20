@@ -14,7 +14,25 @@ import "./interfaces/yearn.sol";
 import {IUniswapV2Router02} from "./interfaces/uniswap.sol";
 import {BaseStrategy} from "@yearnvaults/contracts/BaseStrategy.sol";
 
-abstract contract StrategyCurveBase is BaseStrategy {
+interface IBalancerStrategyVoterProxy {
+    function balanceOf(address _gauge) public view returns (uint256);
+
+    function withdraw(
+        address _gauge,
+        address _token,
+        uint256 _amount
+    ) public returns (uint256);
+
+    function withdrawAll(address _gauge, address _token) external returns (uint256);
+
+    function deposit(address _gauge, address _token) external;
+}
+
+interface ILiquidityGaugeFactory {
+    function getPoolGauge(address pool) external view returns (address);
+}
+
+abstract contract StrategyBalancerBase is BaseStrategy {
     using SafeERC20 for IERC20;
     using Address for address;
     using SafeMath for uint256;
@@ -22,24 +40,21 @@ abstract contract StrategyCurveBase is BaseStrategy {
     /* ========== STATE VARIABLES ========== */
     // these should stay the same across different wants.
 
-    // curve infrastructure contracts
-    ICurveStrategyProxy public proxy; // Below we set it to Yearn's Updated v4 StrategyProxy
-    address public gauge; // Curve gauge contract, most are tokenized, held by Yearn's voter
+    IBalancerStrategyVoterProxy public proxy;
+    address public gauge; // Gauge that voter stakes in to recieve BAL rewards 
 
-    // keepCRV stuff
-    uint256 public keepCRV = 1000; // the percentage of CRV we re-lock for boost (in basis points)
+    // keepBAL stuff
+    uint256 public keepBAL = 1000; // the percentage of CRV we re-lock for boost (in basis points)
     uint256 public constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in bips
-    address public constant voter = 0xF147b8125d2ef93FB6965Db97D6746952a133934; // Yearn's veCRV voter
+    address public constant voter = 0xF147b8125d2ef93FB6965Db97D6746952a133934; // TODO: set this
 
-    // swap stuff
-    address public constant sushiswap =
-        0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F; // default to sushiswap, more CRV liquidity there
-    address[] public crvPath;
-
-    IERC20 public constant crv =
-        IERC20(0xD533a949740bb3306d119CC777fa900bA034cd52);
-    IERC20 public constant weth =
+    IERC20 public constant BAL =
+        IERC20(0xba100000625a3754423978a60c9317c58a424e3D);
+    IERC20 public constant WETH =
         IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+
+    IBalancerVault public balancerVault = IBalancerVault(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
+    ILiquidityGaugeFactory public liquidityGaugeFactory = ILiquidityGaugeFactory(0x4E7bBd911cf1EFa442BC1b2e9Ea01ffE785412EC);
 
     bool internal forceHarvestTriggerOnce; // only set this to true externally when we want to trigger our keepers to harvest for us
 
@@ -87,19 +102,19 @@ abstract contract StrategyCurveBase is BaseStrategy {
         override
         returns (uint256 _liquidatedAmount, uint256 _loss)
     {
-        uint256 _wantBal = balanceOfWant();
-        if (_amountNeeded > _wantBal) {
+        uint256 _wantBalance = balanceOfWant();
+        if (_amountNeeded > _wantBalance) {
             // check if we have enough free funds to cover the withdrawal
-            uint256 _stakedBal = stakedBalance();
-            if (_stakedBal > 0) {
+            uint256 _stakedBalance = stakedBalance();
+            if (_stakedBalance > 0) {
                 proxy.withdraw(
                     gauge,
                     address(want),
-                    Math.min(_stakedBal, _amountNeeded.sub(_wantBal))
+                    Math.min(_stakedBalance, _amountNeeded.sub(_wantBalance))
                 );
             }
-            uint256 _withdrawnBal = balanceOfWant();
-            _liquidatedAmount = Math.min(_amountNeeded, _withdrawnBal);
+            uint256 _withdrawnBalance = balanceOfWant();
+            _liquidatedAmount = Math.min(_amountNeeded, _withdrawnBalance);
             _loss = _amountNeeded.sub(_liquidatedAmount);
         } else {
             // we have enough balance to cover the liquidation available
@@ -109,18 +124,18 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
     // fire sale, get rid of it all!
     function liquidateAllPositions() internal override returns (uint256) {
-        uint256 _stakedBal = stakedBalance();
-        if (_stakedBal > 0) {
+        uint256 _stakedBalance = stakedBalance();
+        if (_stakedBalance > 0) {
             // don't bother withdrawing zero
-            proxy.withdraw(gauge, address(want), _stakedBal);
+            proxy.withdraw(gauge, address(want), _stakedBalance);
         }
         return balanceOfWant();
     }
 
     function prepareMigration(address _newStrategy) internal override {
-        uint256 _stakedBal = stakedBalance();
+        uint256 _stakedBalance = stakedBalance();
         if (_stakedBal > 0) {
-            proxy.withdraw(gauge, address(want), _stakedBal);
+            proxy.withdraw(gauge, address(want), _stakedBalance);
         }
     }
 
@@ -158,13 +173,13 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
     // Use to update Yearn's StrategyProxy contract as needed in case of upgrades.
     function setProxy(address _proxy) external onlyGovernance {
-        proxy = ICurveStrategyProxy(_proxy);
+        proxy = IBalancerStrategyProxy(_proxy);
     }
 
-    // Set the amount of CRV to be locked in Yearn's veCRV voter from each harvest. Default is 10%.
-    function setKeepCRV(uint256 _keepCRV) external onlyAuthorized {
-        require(_keepCRV <= 10_000);
-        keepCRV = _keepCRV;
+    // Set the amount of BAL to be locked in Yearn's veBAL voter from each harvest. Default is 10%.
+    function setKeepBAL(uint256 _keepBAL) external onlyAuthorized {
+        require(_keepBAL <= 10_000);
+        keepBAL = _keepBAL;
     }
 
     // This allows us to manually harvest with our keeper as needed
@@ -176,17 +191,10 @@ abstract contract StrategyCurveBase is BaseStrategy {
     }
 }
 
-contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
+contract StrategyBalancerBoostedPool is StrategyBalancerBase {
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
 
-    // Curve stuff
-    address public curve; // This is our pool specific to this vault. Use it with zap contract to specify our correct pool.
-    ICurveFi public constant zapContract =
-        ICurveFi(0xA79828DF1850E8a3A3064576f380D90aECDD3359); // this is used for depositing to all 3Crv metapools
-
-    // we use these to deposit to our curve pool
-    uint256 public optimal; // this is the optimal token to deposit back to our curve pool. 0 DAI, 1 USDC, 2 USDT
     IERC20 public constant usdt =
         IERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7);
     IERC20 public constant usdc =
@@ -194,143 +202,24 @@ contract StrategyCurve3CrvRewardsClonable is StrategyCurveBase {
     IERC20 public constant dai =
         IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
 
-    // rewards token info. we can have more than 1 reward token but this is rare, so we don't include this in the template
-    IERC20 public rewardsToken;
-    bool public hasRewards;
-    address[] public rewardsPath;
-
-    // check for cloning
-    bool internal isOriginal = true;
-
     /* ========== CONSTRUCTOR ========== */
 
     constructor(
         address _vault,
-        address _curvePool,
-        address _gauge,
-        bool _hasRewards,
-        address _rewardsToken,
         string memory _name
-    ) public StrategyCurveBase(_vault) {
-        _initializeStrat(_curvePool, _gauge, _hasRewards, _rewardsToken, _name);
-    }
-
-    /* ========== CLONING ========== */
-
-    event Cloned(address indexed clone);
-
-    // we use this to clone our original strategy to other vaults
-    function cloneCurve3CrvRewards(
-        address _vault,
-        address _strategist,
-        address _rewards,
-        address _keeper,
-        address _curvePool,
-        address _gauge,
-        bool _hasRewards,
-        address _rewardsToken,
-        string memory _name
-    ) external returns (address newStrategy) {
-        require(isOriginal);
-        // Copied from https://github.com/optionality/clone-factory/blob/master/contracts/CloneFactory.sol
-        bytes20 addressBytes = bytes20(address(this));
-        assembly {
-            // EIP-1167 bytecode
-            let clone_code := mload(0x40)
-            mstore(
-                clone_code,
-                0x3d602d80600a3d3981f3363d3d373d3d3d363d73000000000000000000000000
-            )
-            mstore(add(clone_code, 0x14), addressBytes)
-            mstore(
-                add(clone_code, 0x28),
-                0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000
-            )
-            newStrategy := create(0, clone_code, 0x37)
-        }
-
-        StrategyCurve3CrvRewardsClonable(newStrategy).initialize(
-            _vault,
-            _strategist,
-            _rewards,
-            _keeper,
-            _curvePool,
-            _gauge,
-            _hasRewards,
-            _rewardsToken,
-            _name
-        );
-
-        emit Cloned(newStrategy);
-    }
-
-    // this will only be called by the clone function above
-    function initialize(
-        address _vault,
-        address _strategist,
-        address _rewards,
-        address _keeper,
-        address _curvePool,
-        address _gauge,
-        bool _hasRewards,
-        address _rewardsToken,
-        string memory _name
-    ) public {
-        _initialize(_vault, _strategist, _rewards, _keeper);
-        _initializeStrat(_curvePool, _gauge, _hasRewards, _rewardsToken, _name);
-    }
-
-    // this is called by our original strategy, as well as any clones
-    function _initializeStrat(
-        address _curvePool,
-        address _gauge,
-        bool _hasRewards,
-        address _rewardsToken,
-        string memory _name
-    ) internal {
-        // make sure that we haven't initialized this before
-        require(address(curve) == address(0)); // already initialized.
-
-        // You can set these parameters on deployment to whatever you want
+    ) public StrategyBalancerBase(_vault) {
         maxReportDelay = 7 days; // 7 days in seconds
-        debtThreshold = 5 * 1e18; // we shouldn't ever have debt, but set a bit of a buffer
-        profitFactor = 10_000; // in this strategy, profitFactor is only used for telling keep3rs when to move funds from vault to strategy
         healthCheck = 0xDDCea799fF1699e98EDF118e0629A974Df7DF012; // health.ychad.eth
-
-        // need to set our proxy again when cloning since it's not a constant
-        proxy = ICurveStrategyProxy(0xA420A63BbEFfbda3B147d0585F1852C358e2C152);
 
         // these are our standard approvals. want = Curve LP token
         want.approve(address(proxy), type(uint256).max);
-        crv.approve(sushiswap, type(uint256).max);
-
-        // set our keepCRV
-        keepCRV = 1000;
-
-        // setup our rewards if we have them
-        if (_hasRewards) {
-            rewardsToken = IERC20(_rewardsToken);
-            rewardsToken.approve(sushiswap, type(uint256).max);
-            rewardsPath = [address(rewardsToken), address(weth), address(dai)];
-            hasRewards = true;
-        }
-
-        // this is the pool specific to this vault, but we only use it as an address
-        curve = address(_curvePool);
+        BAL.approve(sushiswap, type(uint256).max);
 
         // set our curve gauge contract
-        gauge = address(_gauge);
+        gauge = 0x68d019f64A7aa97e2D4e7363AEE42251D08124Fb;
 
         // set our strategy's name
         stratName = _name;
-
-        // these are our approvals and path specific to this contract
-        dai.approve(address(zapContract), type(uint256).max);
-        usdt.safeApprove(address(zapContract), type(uint256).max); // USDT requires safeApprove(), funky token
-        usdc.approve(address(zapContract), type(uint256).max);
-
-        // start off with dai
-        crvPath = [address(crv), address(weth), address(dai)];
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
