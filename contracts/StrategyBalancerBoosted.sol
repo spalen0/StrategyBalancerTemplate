@@ -9,24 +9,12 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/math/Math.sol";
 
-import "./interfaces/curve.sol";
-import "./interfaces/yearn.sol";
 import {IUniswapV2Router02} from "./interfaces/uniswap.sol";
 import {BaseStrategy} from "@yearnvaults/contracts/BaseStrategy.sol";
+import {IStrategyVoterProxy} from "../interfaces/Yearn/IStrategyVoterProxy.sol";
+import {IPriceFeed} from "../interfaces/Liquity/IPriceFeed.sol"; // Liquity happens to have a good ETH/USD oracle aggregator
 
-interface IBalancerStrategyVoterProxy {
-    function balanceOf(address _gauge) public view returns (uint256);
-
-    function withdraw(
-        address _gauge,
-        address _token,
-        uint256 _amount
-    ) public returns (uint256);
-
-    function withdrawAll(address _gauge, address _token) external returns (uint256);
-
-    function deposit(address _gauge, address _token) external;
-}
+import {IBalancerVault, IBalancerPool} from "../interfaces/Balancer/BalancerV2.sol";
 
 interface ILiquidityGaugeFactory {
     function getPoolGauge(address pool) external view returns (address);
@@ -40,13 +28,13 @@ abstract contract StrategyBalancerBase is BaseStrategy {
     /* ========== STATE VARIABLES ========== */
     // these should stay the same across different wants.
 
-    IBalancerStrategyVoterProxy public proxy;
+    IStrategyVoterProxy public proxy;
+    address immutable public voter; // We don't need to call it, but we need to send BAL to it
     address public gauge; // Gauge that voter stakes in to recieve BAL rewards 
 
     // keepBAL stuff
-    uint256 public keepBAL = 1000; // the percentage of CRV we re-lock for boost (in basis points)
-    uint256 public constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in bips
-    address public constant voter = 0xF147b8125d2ef93FB6965Db97D6746952a133934; // TODO: set this
+    uint256 public keepBAL = 1000; // the percentage of BAL that we re-lock for boost (in bips) 
+    uint256 public constant BIPS_DENOMINATOR = 10000; // 10k bips in 100%
 
     IERC20 public constant BAL =
         IERC20(0xba100000625a3754423978a60c9317c58a424e3D);
@@ -62,7 +50,10 @@ abstract contract StrategyBalancerBase is BaseStrategy {
 
     /* ========== CONSTRUCTOR ========== */
 
-    constructor(address _vault) public BaseStrategy(_vault) {}
+    constructor(address _vault, address _proxy, address _voter) public BaseStrategy(_vault) {
+        proxy = IStrategyVoterProxy(_proxy);
+        voter = _voter;
+    }
 
     /* ========== VIEWS ========== */
 
@@ -134,7 +125,7 @@ abstract contract StrategyBalancerBase is BaseStrategy {
 
     function prepareMigration(address _newStrategy) internal override {
         uint256 _stakedBalance = stakedBalance();
-        if (_stakedBal > 0) {
+        if (_stakedBalance > 0) {
             proxy.withdraw(gauge, address(want), _stakedBalance);
         }
     }
@@ -173,7 +164,7 @@ abstract contract StrategyBalancerBase is BaseStrategy {
 
     // Use to update Yearn's StrategyProxy contract as needed in case of upgrades.
     function setProxy(address _proxy) external onlyGovernance {
-        proxy = IBalancerStrategyProxy(_proxy);
+        proxy = IStrategyVoterProxy(_proxy);
     }
 
     // Set the amount of BAL to be locked in Yearn's veBAL voter from each harvest. Default is 10%.
@@ -192,33 +183,26 @@ abstract contract StrategyBalancerBase is BaseStrategy {
 }
 
 contract StrategyBalancerBoostedPool is StrategyBalancerBase {
-    /* ========== STATE VARIABLES ========== */
-    // these will likely change across different wants.
 
-    IERC20 public constant usdt =
-        IERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7);
-    IERC20 public constant usdc =
-        IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
-    IERC20 public constant dai =
-        IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
-
-    /* ========== CONSTRUCTOR ========== */
+    // Chainlink ETH:USD with Tellor ETH:USD as fallback
+    IPriceFeed internal constant priceFeed =
+        IPriceFeed(0x4c517D4e2C851CA76d7eC94B805269Df0f2201De);
 
     constructor(
         address _vault,
-        string memory _name
-    ) public StrategyBalancerBase(_vault) {
+        string memory _name,
+        address _proxy,
+        address _voter
+    ) public StrategyBalancerBase(_vault, _proxy, _voter) {
+        require(address(want) == 0x7B50775383d3D6f0215A8F290f2C9e2eEBBEceb2, "!boosted_pool");
         maxReportDelay = 7 days; // 7 days in seconds
         healthCheck = 0xDDCea799fF1699e98EDF118e0629A974Df7DF012; // health.ychad.eth
 
-        // these are our standard approvals. want = Curve LP token
+        // these are our standard approvals. want = Balancer LP token
         want.approve(address(proxy), type(uint256).max);
-        BAL.approve(sushiswap, type(uint256).max);
 
-        // set our curve gauge contract
         gauge = 0x68d019f64A7aa97e2D4e7363AEE42251D08124Fb;
 
-        // set our strategy's name
         stratName = _name;
     }
 
@@ -234,64 +218,36 @@ contract StrategyBalancerBoostedPool is StrategyBalancerBase {
             uint256 _debtPayment
         )
     {
-        // if we have anything in the gauge, then harvest CRV from the gauge
-        uint256 _stakedBal = stakedBalance();
-        if (_stakedBal > 0) {
+        uint256 _stakedBalance = stakedBalance();
+        if (_stakedBalance > 0) {
+            uint256 _balanceOfBalBeforeClaim = BAL.balanceOf(address(this));
             proxy.harvest(gauge);
-            uint256 _crvBalance = crv.balanceOf(address(this));
-            // if we claimed any CRV, then sell it
-            if (_crvBalance > 0) {
-                // keep some of our CRV to increase our boost
-                uint256 _sendToVoter =
-                    _crvBalance.mul(keepCRV).div(FEE_DENOMINATOR);
-                if (keepCRV > 0) {
-                    crv.safeTransfer(voter, _sendToVoter);
-                }
-                uint256 _crvRemainder = _crvBalance.sub(_sendToVoter);
+            uint256 _balClaimed = BAL.balanceOf(address(this)).sub(_balanceOfBalBeforeClaim);
 
-                // sell the rest of our CRV
-                if (_crvRemainder > 0) {
-                    _sell(_crvRemainder);
-                }
+            if (_balClaimed > 0) {
+                uint256 _sendToVoter = _balClaimed.mul(keepBAL).div(BIPS_DENOMINATOR);
 
-                if (hasRewards) {
-                    proxy.claimRewards(gauge, address(rewardsToken));
-                    uint256 _rewardsBalance =
-                        rewardsToken.balanceOf(address(this));
-                    if (_rewardsBalance > 0) {
-                        _sellRewards(_rewardsBalance);
-                    }
-                }
-
-                // deposit our balance to Curve if we have any
-                if (optimal == 0) {
-                    uint256 daiBalance = dai.balanceOf(address(this));
-                    zapContract.add_liquidity(curve, [0, daiBalance, 0, 0], 0);
-                } else if (optimal == 1) {
-                    uint256 usdcBalance = usdc.balanceOf(address(this));
-                    zapContract.add_liquidity(curve, [0, 0, usdcBalance, 0], 0);
-                } else {
-                    uint256 usdtBalance = usdt.balanceOf(address(this));
-                    zapContract.add_liquidity(curve, [0, 0, 0, usdtBalance], 0);
+                if (_sendToVoter > 0) {
+                    BAL.safeTransfer(voter, _sendToVoter);
                 }
             }
         }
 
         // debtOustanding will only be > 0 in the event of revoking or if we need to rebalance from a withdrawal or lowering the debtRatio
         if (_debtOutstanding > 0) {
-            if (_stakedBal > 0) {
+            uint256 _toWithdraw = _debtOutstanding.sub(balanceOfWant());
+            if (_stakedBalance > 0) {
                 // don't bother withdrawing if we don't have staked funds
                 proxy.withdraw(
                     gauge,
                     address(want),
-                    Math.min(_stakedBal, _debtOutstanding)
+                    Math.min(_stakedBalance, _debtOutstanding)
                 );
             }
-            uint256 _withdrawnBal = balanceOfWant();
-            _debtPayment = Math.min(_debtOutstanding, _withdrawnBal);
+            _debtPayment = Math.min(_debtOutstanding, balanceOfWant());
         }
 
-        // serious loss should never happen, but if it does (for instance, if Curve is hacked), let's record it accurately
+        // serious loss should never happen, but if it does (for instance, if Balancer is hacked), let's record it accurately
         uint256 assets = estimatedTotalAssets();
         uint256 debt = vault.strategies(address(this)).totalDebt;
 
@@ -313,27 +269,6 @@ contract StrategyBalancerBoostedPool is StrategyBalancerBase {
         forceHarvestTriggerOnce = false;
     }
 
-    // Sells our harvested CRV into the selected output.
-    function _sell(uint256 _amount) internal {
-        IUniswapV2Router02(sushiswap).swapExactTokensForTokens(
-            _amount,
-            uint256(0),
-            crvPath,
-            address(this),
-            block.timestamp
-        );
-    }
-
-    // Sells our harvested reward token into the selected output.
-    function _sellRewards(uint256 _amount) internal {
-        IUniswapV2Router02(sushiswap).swapExactTokensForTokens(
-            _amount,
-            uint256(0),
-            rewardsPath,
-            address(this),
-            block.timestamp
-        );
-    }
 
     /* ========== KEEP3RS ========== */
 
@@ -344,78 +279,8 @@ contract StrategyBalancerBoostedPool is StrategyBalancerBase {
         override
         returns (uint256)
     {
-        uint256 callCostInWant;
-        if (_ethAmount > 0) {
-            address[] memory ethPath = new address[](2);
-            ethPath[0] = address(weth);
-            ethPath[1] = address(dai);
-
-            uint256[] memory _callCostInDaiTuple =
-                IUniswapV2Router02(sushiswap).getAmountsOut(
-                    _ethAmount,
-                    ethPath
-                );
-
-            uint256 _callCostInDai =
-                _callCostInDaiTuple[_callCostInDaiTuple.length - 1];
-            callCostInWant = zapContract.calc_token_amount(
-                curve,
-                [0, _callCostInDai, 0, 0],
-                true
-            );
-        }
-        return callCostInWant;
+        uint256 _amountInUSD = _ethAmount.mul(priceFeed.lastGoodPrice()).div(1e18);
+        return _amountInUSD.mul(1e18).div(IBalancerPool(address(want)).getRate());
     }
 
-    /* ========== SETTERS ========== */
-
-    // These functions are useful for setting parameters of the strategy that may need to be adjusted.
-
-    // Use to add or update rewards
-    function updateRewards(address _rewardsToken) external onlyGovernance {
-        // reset allowance to zero for our previous token if we had one
-        if (address(rewardsToken) != address(0)) {
-            rewardsToken.approve(sushiswap, uint256(0));
-        }
-        // update with our new token, use dai as default
-        rewardsToken = IERC20(_rewardsToken);
-        rewardsToken.approve(sushiswap, type(uint256).max);
-        rewardsPath = [address(rewardsToken), address(weth), address(dai)];
-        hasRewards = true;
-    }
-
-    // Use to turn off extra rewards claiming
-    function turnOffRewards() external onlyGovernance {
-        hasRewards = false;
-        if (address(rewardsToken) != address(0)) {
-            rewardsToken.approve(sushiswap, uint256(0));
-        }
-        rewardsToken = IERC20(address(0));
-    }
-
-    // Set optimal token to sell harvested funds for depositing to Curve.
-    // Default is DAI, but can be set to USDC or USDT as needed by strategist or governance.
-    function setOptimal(uint256 _optimal) external onlyAuthorized {
-        if (_optimal == 0) {
-            crvPath[2] = address(dai);
-            if (hasRewards) {
-                rewardsPath[2] = address(dai);
-            }
-            optimal = 0;
-        } else if (_optimal == 1) {
-            crvPath[2] = address(usdc);
-            if (hasRewards) {
-                rewardsPath[2] = address(usdc);
-            }
-            optimal = 1;
-        } else if (_optimal == 2) {
-            crvPath[2] = address(usdt);
-            if (hasRewards) {
-                rewardsPath[2] = address(usdt);
-            }
-            optimal = 2;
-        } else {
-            revert("incorrect token");
-        }
-    }
 }

@@ -103,14 +103,14 @@ interface IBalancerVault {
 
     // enconding formats https://github.com/balancer-labs/balancer-v2-monorepo/blob/master/pkg/balancer-js/src/pool-weighted/encoder.ts
     struct JoinPoolRequest {
-        IAsset[] assets;
+        address[] assets;
         uint256[] maxAmountsIn;
         bytes userData;
         bool fromInternalBalance;
     }
 
     struct ExitPoolRequest {
-        IAsset[] assets;
+        address[] assets;
         uint256[] minAmountsOut;
         bytes userData;
         bool toInternalBalance;
