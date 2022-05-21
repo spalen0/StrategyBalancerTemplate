@@ -55,8 +55,26 @@ def ymechs_safe():
 
 
 @pytest.fixture
+def balancer_vault():
+    yield Contract("0xBA12222222228d8Ba445958a75a0704d566BF2C8")
+
+
+@pytest.fixture(scope="module")
+def multicall_swapper(interface):
+    yield interface.MultiCallOptimizedSwapper(
+        "0xB2F65F254Ab636C96fb785cc9B4485cbeD39CDAA"
+    )
+
+
+@pytest.fixture
 def want():
     token_address = "0x7B50775383d3D6f0215A8F290f2C9e2eEBBEceb2"  # boosted pool token
+    yield Contract(token_address)
+
+
+@pytest.fixture
+def bal():
+    token_address = "0xba100000625a3754423978a60c9317c58a424e3D"
     yield Contract(token_address)
 
 
