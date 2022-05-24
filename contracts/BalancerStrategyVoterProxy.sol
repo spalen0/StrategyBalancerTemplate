@@ -54,46 +54,67 @@ contract BalancerStrategyVoterProxy {
         voter = IBalancerVoter(_voter);
     }
 
-    function setGovernance(address _governance) external {
-        require(msg.sender == governance, "!governance");
+    enum ROLE {GOVERNANCE, VOTER, LOCKER}
+
+    modifier hasRole(ROLE _role) {
+        _checkRole(_role);
+        _;
+    }
+
+    modifier isStrategy(address _gauge) {
+        require(strategies[_gauge] == msg.sender, "!strategy");
+        _;
+    }
+
+    function _checkRole(ROLE _role) internal view {
+        if (_role == ROLE.GOVERNANCE) {
+            require(msg.sender == governance, "!governance");
+        } else if (_role == ROLE.VOTER) {
+            require(voters[msg.sender], "!voter");
+        } else {
+            require(lockers[msg.sender], "!locker");
+        }
+    }
+
+    function setGovernance(address _governance)
+        external
+        hasRole(ROLE.GOVERNANCE)
+    {
         governance = _governance;
         emit NewGovernance(_governance);
     }
 
-    function approveStrategy(address _gauge, address _strategy) external {
-        require(msg.sender == governance, "!governance");
+    function approveStrategy(address _gauge, address _strategy)
+        external
+        hasRole(ROLE.GOVERNANCE)
+    {
         strategies[_gauge] = _strategy;
         emit StrategyApproved(_strategy);
     }
 
-    function revokeStrategy(address _gauge) external {
-        require(msg.sender == governance, "!governance");
+    function revokeStrategy(address _gauge) external hasRole(ROLE.GOVERNANCE) {
         require(strategies[_gauge] != address(0), "!exists");
         address _strategy = strategies[_gauge];
         strategies[_gauge] = address(0);
         emit StrategyRevoked(_strategy);
     }
 
-    function approveVoter(address _voter) external {
-        require(msg.sender == governance, "!governance");
+    function approveVoter(address _voter) external hasRole(ROLE.GOVERNANCE) {
         voters[_voter] = true;
         emit VoterApproved(_voter);
     }
 
-    function revokeVoter(address _voter) external {
-        require(msg.sender == governance, "!governance");
+    function revokeVoter(address _voter) external hasRole(ROLE.GOVERNANCE) {
         voters[_voter] = false;
         emit VoterRevoked(_voter);
     }
 
-    function approveLocker(address _locker) external {
-        require(msg.sender == governance, "!governance");
+    function approveLocker(address _locker) external hasRole(ROLE.GOVERNANCE) {
         lockers[_locker] = true;
         emit LockerApproved(_locker);
     }
 
-    function revokeLocker(address _locker) external {
-        require(msg.sender == governance, "!governance");
+    function revokeLocker(address _locker) external hasRole(ROLE.GOVERNANCE) {
         lockers[_locker] = false;
         emit LockerRevoked(_locker);
     }
@@ -102,18 +123,18 @@ contract BalancerStrategyVoterProxy {
         voter.increaseAmountMax(false); // Unprotected function shouldn't sell BAL
     }
 
-    function convertAndLockMax() external {
-        require(lockers[msg.sender], "!approved");
+    function convertAndLockMax() external hasRole(ROLE.LOCKER) {
         voter.increaseAmountMax(true);
     }
 
-    function convertAndLockExact(uint256 _amount) external {
-        require(lockers[msg.sender], "!approved");
+    function convertAndLockExact(uint256 _amount)
+        external
+        hasRole(ROLE.LOCKER)
+    {
         if (_amount > 0) voter.increaseAmountExact(_amount, true);
     }
 
-    function vote(address _gauge, uint256 _amount) public {
-        require(voters[msg.sender], "!voter");
+    function vote(address _gauge, uint256 _amount) public hasRole(ROLE.VOTER) {
         voter.safeExecute(
             gauge,
             0,
@@ -129,8 +150,7 @@ contract BalancerStrategyVoterProxy {
         address _gauge,
         address _token,
         uint256 _amount
-    ) public returns (uint256) {
-        require(strategies[_gauge] == msg.sender, "!strategy");
+    ) public isStrategy(_gauge) returns (uint256) {
         uint256 _balance = IERC20(_token).balanceOf(address(voter));
         voter.safeExecute(
             _gauge,
@@ -156,14 +176,16 @@ contract BalancerStrategyVoterProxy {
 
     function withdrawAll(address _gauge, address _token)
         external
+        isStrategy(_gauge)
         returns (uint256)
     {
-        require(strategies[_gauge] == msg.sender, "!strategy");
         return withdraw(_gauge, _token, balanceOf(_gauge));
     }
 
-    function deposit(address _gauge, address _token) external {
-        require(strategies[_gauge] == msg.sender, "!strategy");
+    function deposit(address _gauge, address _token)
+        external
+        isStrategy(_gauge)
+    {
         uint256 _balance = IERC20(_token).balanceOf(address(this));
         IERC20(_token).safeTransfer(address(voter), _balance);
         _balance = IERC20(_token).balanceOf(address(voter));
@@ -190,8 +212,7 @@ contract BalancerStrategyVoterProxy {
     }
 
     // Claim BAL rewards
-    function claimBal(address _gauge) external {
-        require(strategies[_gauge] == msg.sender, "!strategy");
+    function claimBal(address _gauge) external isStrategy(_gauge) {
         uint256 _balance = IERC20(bal).balanceOf(address(voter));
         voter.safeExecute(
             balMinter,
@@ -211,8 +232,7 @@ contract BalancerStrategyVoterProxy {
     }
 
     // Claim other rewards
-    function claimRewards(address _gauge) external {
-        require(strategies[_gauge] == msg.sender, "!strategy");
+    function claimRewards(address _gauge) external isStrategy(_gauge) {
         voter.safeExecute(
             _gauge,
             0,
