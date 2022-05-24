@@ -15,5 +15,7 @@ interface IStrategyVoterProxy {
 
     function deposit(address _gauge, address _token) external;
 
-    function harvest(address _gauge) external;
+    function claimBal(address _gauge) external;
+
+    function claimRewards(address _gauge) external;
 }

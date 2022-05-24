@@ -7,7 +7,7 @@ def test_migration(
     vault,
     strategy,
     amount,
-    StrategyBalancerBoostedPool,
+    StrategyBalancerClonable,
     strategist,
     gov,
     user,
@@ -32,9 +32,8 @@ def test_migration(
         {"from": ymechs_safe, "gas_price": "0 gwei"},
     )
     new_strategy = strategist.deploy(
-        StrategyBalancerBoostedPool,
+        StrategyBalancerClonable,
         vault,
-        "BalancerBoostedAaveStrategy",
         voter_proxy,
         yearn_balancer_voter,
     )

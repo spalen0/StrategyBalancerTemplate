@@ -211,10 +211,14 @@ contract StrategyBalancerClonable is BaseStrategy {
             uint256 _debtPayment
         )
     {
+        if (rewardTokens.length > 0) {
+            proxy.claimRewards(gauge);
+        }
+
         uint256 _stakedBalance = stakedBalance();
         if (_stakedBalance > 0) {
             uint256 _balanceOfBalBeforeClaim = BAL.balanceOf(address(this));
-            proxy.harvest(gauge);
+            proxy.claimBal(gauge);
             uint256 _balClaimed =
                 BAL.balanceOf(address(this)).sub(_balanceOfBalBeforeClaim);
 
@@ -339,6 +343,9 @@ contract StrategyBalancerClonable is BaseStrategy {
 
         ITradeFactory tf = ITradeFactory(_tradeFactory);
 
+        BAL.safeApprove(_tradeFactory, type(uint256).max);
+        tf.enable(address(BAL), address(want));
+
         for (uint256 i = 0; i < rewardTokens.length; i++) {
             address rewardToken = rewardTokens[i];
             IERC20(rewardToken).safeApprove(_tradeFactory, type(uint256).max);
@@ -352,6 +359,7 @@ contract StrategyBalancerClonable is BaseStrategy {
     }
 
     function _removeTradeFactoryPermissions() internal {
+        BAL.safeApprove(tradeFactory, 0);
         for (uint256 i = 0; i < rewardTokens.length; i++) {
             IERC20(rewardTokens[i]).safeApprove(tradeFactory, 0);
         }

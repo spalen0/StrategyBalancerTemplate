@@ -189,7 +189,8 @@ contract BalancerStrategyVoterProxy {
         );
     }
 
-    function harvest(address _gauge) external {
+    // Claim BAL rewards
+    function claimBal(address _gauge) external {
         require(strategies[_gauge] == msg.sender, "!strategy");
         uint256 _balance = IERC20(bal).balanceOf(address(voter));
         voter.safeExecute(
@@ -209,7 +210,8 @@ contract BalancerStrategyVoterProxy {
         );
     }
 
-    function claimRewards(address _gauge, address _token) external {
+    // Claim other rewards
+    function claimRewards(address _gauge) external {
         require(strategies[_gauge] == msg.sender, "!strategy");
         voter.safeExecute(
             _gauge,

@@ -114,7 +114,7 @@ def gauge_factory():
 
 @pytest.fixture
 def strategy(
-    StrategyBalancerBoostedPool,
+    StrategyBalancerClonable,
     vault,
     trade_factory,
     ymechs_safe,
@@ -126,9 +126,8 @@ def strategy(
     gauge,
 ):
     strategy = strategist.deploy(
-        StrategyBalancerBoostedPool,
+        StrategyBalancerClonable,
         vault,
-        "BalancerBoostedAaveStrategy",
         voter_proxy,
         yearn_balancer_voter,
     )
