@@ -107,6 +107,12 @@ def gauge():
 
 
 @pytest.fixture
+def gauge_factory():
+    address = "0x4E7bBd911cf1EFa442BC1b2e9Ea01ffE785412EC"
+    yield Contract(gauge_factory)
+
+
+@pytest.fixture
 def strategy(
     StrategyBalancerBoostedPool,
     vault,

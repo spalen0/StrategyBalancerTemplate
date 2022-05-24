@@ -211,14 +211,13 @@ contract BalancerStrategyVoterProxy {
 
     function claimRewards(address _gauge, address _token) external {
         require(strategies[_gauge] == msg.sender, "!strategy");
-        IGauge(_gauge).claim_rewards(address(voter));
         voter.safeExecute(
-            _token,
+            _gauge,
             0,
-            abi.encodeWithSignature(
-                "transfer(address,uint256)",
-                msg.sender,
-                IERC20(_token).balanceOf(address(voter))
+            abi.encodeWithSelector(
+                IGauge.claim_rewards.selector,
+                address(voter),
+                msg.sender // This should forward along all rewards to the strategy
             )
         );
     }
@@ -232,6 +231,6 @@ library SafeVoter {
         bytes memory data
     ) internal {
         (bool success, ) = voter.execute(to, value, data);
-        if (!success) assert(false);
+        require(success);
     }
 }

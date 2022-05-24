@@ -2,30 +2,33 @@
 pragma solidity 0.6.12;
 pragma experimental ABIEncoderV2;
 
-// These are the core Yearn libraries
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/math/SafeMath.sol";
-import "@openzeppelin/contracts/utils/Address.sol";
-import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/math/Math.sol";
+import {
+    SafeERC20,
+    SafeMath,
+    IERC20,
+    Address
+} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import {IERC20Metadata} from "@yearnvaults/contracts/yToken.sol";
 
 import {BaseStrategy} from "@yearnvaults/contracts/BaseStrategy.sol";
 import {ITradeFactory} from "../interfaces/Yearn/ITradeFactory.sol";
 import {IStrategyVoterProxy} from "../interfaces/Yearn/IStrategyVoterProxy.sol";
-
-import {IPriceFeed} from "../interfaces/Liquity/IPriceFeed.sol"; // Liquity happens to have a good ETH/USD oracle aggregator
+import {IGauge} from "../interfaces/Balancer/IGauge.sol";
 import {
     IBalancerVault,
     IBalancerPool
 } from "../interfaces/Balancer/BalancerV2.sol";
+import {
+    ILiquidityGaugeFactory
+} from "../interfaces/Balancer/ILiquidityGaugeFactory.sol";
 
-abstract contract StrategyBalancerBase is BaseStrategy {
+contract StrategyBalancerClonable is BaseStrategy {
     using SafeERC20 for IERC20;
     using Address for address;
     using SafeMath for uint256;
 
     /* ========== STATE VARIABLES ========== */
-    // these should stay the same across different wants.
 
     IStrategyVoterProxy public proxy;
     address public immutable voter; // We don't need to call it, but we need to send BAL to it
@@ -33,21 +36,24 @@ abstract contract StrategyBalancerBase is BaseStrategy {
 
     address public tradeFactory = address(0);
 
-    // keepBAL stuff
-    uint256 public keepBAL = 1000; // the percentage of BAL that we re-lock for boost (in bips)
+    uint256 public keepBAL; // the percentage of BAL that we re-lock for boost (in bips)
     uint256 public constant BIPS_DENOMINATOR = 10000; // 10k bips in 100%
 
-    IERC20 public constant BAL =
+    IERC20 internal constant BAL =
         IERC20(0xba100000625a3754423978a60c9317c58a424e3D);
-    IERC20 public constant WETH =
+    IERC20 internal constant WETH =
         IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    ILiquidityGaugeFactory internal constant liquidityGaugeFactory =
+        ILiquidityGaugeFactory(0x4E7bBd911cf1EFa442BC1b2e9Ea01ffE785412EC);
 
-    IBalancerVault public balancerVault =
+    IBalancerVault internal constant balancerVault =
         IBalancerVault(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
+    address[] public rewardTokens;
 
     bool internal forceHarvestTriggerOnce; // only set this to true externally when we want to trigger our keepers to harvest for us
 
-    string internal stratName; // set our strategy name here
+    bool public isOriginal = true;
+    event Cloned(address indexed clone);
 
     /* ========== CONSTRUCTOR ========== */
 
@@ -56,14 +62,82 @@ abstract contract StrategyBalancerBase is BaseStrategy {
         address _proxy,
         address _voter
     ) public BaseStrategy(_vault) {
-        proxy = IStrategyVoterProxy(_proxy);
         voter = _voter;
+        _initializeStrategy(_proxy);
+    }
+
+    function initialize(
+        address _vault,
+        address _strategist,
+        address _rewards,
+        address _keeper,
+        address _proxy
+    ) external {
+        _initialize(_vault, _strategist, _rewards, _keeper);
+        _initializeStrategy(_proxy);
+    }
+
+    function _initializeStrategy(address _proxy) internal {
+        proxy = IStrategyVoterProxy(_proxy);
+
+        want.safeApprove(address(_proxy), type(uint256).max);
+
+        gauge = liquidityGaugeFactory.getPoolGauge(address(want));
+        keepBAL = 1000;
+
+        uint256 _numOfRewardTokens = IGauge(gauge).reward_count(); // FYI – technically, reward tokens can change dynamically, so we may need to re-clone a strategy
+        for (uint256 i = 0; i < _numOfRewardTokens; i++) {
+            rewardTokens.push(IGauge(gauge).reward_tokens(i));
+        }
+        healthCheck = 0xDDCea799fF1699e98EDF118e0629A974Df7DF012; // health.ychad.eth
+    }
+
+    function clone(
+        address _vault,
+        address _strategist,
+        address _rewards,
+        address _keeper,
+        address _proxy
+    ) external returns (address newStrategy) {
+        require(isOriginal, "!clone");
+        bytes20 addressBytes = bytes20(address(this));
+
+        assembly {
+            // EIP-1167 bytecode
+            let clone_code := mload(0x40)
+            mstore(
+                clone_code,
+                0x3d602d80600a3d3981f3363d3d373d3d3d363d73000000000000000000000000
+            )
+            mstore(add(clone_code, 0x14), addressBytes)
+            mstore(
+                add(clone_code, 0x28),
+                0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000
+            )
+            newStrategy := create(0, clone_code, 0x37)
+        }
+
+        StrategyBalancerClonable(newStrategy).initialize(
+            _vault,
+            _strategist,
+            _rewards,
+            _keeper,
+            _proxy
+        );
+
+        emit Cloned(newStrategy);
     }
 
     /* ========== VIEWS ========== */
 
     function name() external view override returns (string memory) {
-        return stratName;
+        return
+            string(
+                abi.encodePacked(
+                    "StrategyBalancer",
+                    IERC20Metadata(address(want)).symbol()
+                )
+            );
     }
 
     function stakedBalance() public view returns (uint256) {
@@ -128,94 +202,6 @@ abstract contract StrategyBalancerBase is BaseStrategy {
         return balanceOfWant();
     }
 
-    function prepareMigration(address _newStrategy) internal override {
-        uint256 _stakedBalance = stakedBalance();
-        if (_stakedBalance > 0) {
-            proxy.withdraw(gauge, address(want), _stakedBalance);
-        }
-    }
-
-    function protectedTokens()
-        internal
-        view
-        override
-        returns (address[] memory)
-    {}
-
-    /* ========== KEEP3RS ========== */
-
-    function harvestTrigger(uint256 callCostinEth)
-        public
-        view
-        override
-        returns (bool)
-    {
-        // trigger if we want to manually harvest
-        if (forceHarvestTriggerOnce) {
-            return true;
-        }
-
-        // Should not trigger if strategy is not active (no assets and no debtRatio). This means we don't need to adjust keeper job.
-        if (!isActive()) {
-            return false;
-        }
-
-        return super.harvestTrigger(callCostinEth);
-    }
-
-    /* ========== SETTERS ========== */
-
-    // These functions are useful for setting parameters of the strategy that may need to be adjusted.
-
-    // Use to update Yearn's StrategyProxy contract as needed in case of upgrades.
-    function setProxy(address _proxy) external onlyGovernance {
-        proxy = IStrategyVoterProxy(_proxy);
-    }
-
-    // Set the amount of BAL to be locked in Yearn's veBAL voter from each harvest. Default is 10%.
-    function setKeepBAL(uint256 _keepBAL) external onlyAuthorized {
-        require(_keepBAL <= 10_000);
-        keepBAL = _keepBAL;
-    }
-
-    // This allows us to manually harvest with our keeper as needed
-    function setForceHarvestTriggerOnce(bool _forceHarvestTriggerOnce)
-        external
-        onlyAuthorized
-    {
-        forceHarvestTriggerOnce = _forceHarvestTriggerOnce;
-    }
-}
-
-contract StrategyBalancerBoostedPool is StrategyBalancerBase {
-    // Chainlink ETH:USD with Tellor ETH:USD as fallback
-    IPriceFeed internal constant priceFeed =
-        IPriceFeed(0x4c517D4e2C851CA76d7eC94B805269Df0f2201De);
-
-    constructor(
-        address _vault,
-        string memory _name,
-        address _proxy,
-        address _voter
-    ) public StrategyBalancerBase(_vault, _proxy, _voter) {
-        require(
-            address(want) == 0x7B50775383d3D6f0215A8F290f2C9e2eEBBEceb2,
-            "!boosted_pool"
-        );
-        maxReportDelay = 7 days; // 7 days in seconds
-        healthCheck = 0xDDCea799fF1699e98EDF118e0629A974Df7DF012; // health.ychad.eth
-
-        // these are our standard approvals. want = Balancer LP token
-        want.approve(address(proxy), type(uint256).max);
-
-        gauge = 0x68d019f64A7aa97e2D4e7363AEE42251D08124Fb; // can be pulled from 0x4E7bBd911cf1EFa442BC1b2e9Ea01ffE785412EC
-
-        stratName = _name;
-    }
-
-    /* ========== MUTATIVE FUNCTIONS ========== */
-    // these will likely change across different wants.
-
     function prepareReturn(uint256 _debtOutstanding)
         internal
         override
@@ -278,6 +264,72 @@ contract StrategyBalancerBoostedPool is StrategyBalancerBase {
         forceHarvestTriggerOnce = false;
     }
 
+    function prepareMigration(address _newStrategy) internal override {
+        uint256 _stakedBalance = stakedBalance();
+        if (_stakedBalance > 0) {
+            proxy.withdraw(gauge, address(want), _stakedBalance);
+        }
+
+        for (uint256 i = 0; i < rewardTokens.length; i++) {
+            IERC20 rewardToken = IERC20(rewardTokens[i]);
+            uint256 _strategyBalance = rewardToken.balanceOf(address(this));
+            if (_strategyBalance > 0) {
+                rewardToken.transfer(_newStrategy, _strategyBalance);
+            }
+        }
+    }
+
+    function protectedTokens()
+        internal
+        view
+        override
+        returns (address[] memory)
+    {}
+
+    /* ========== KEEP3RS ========== */
+
+    function harvestTrigger(uint256 callCostinEth)
+        public
+        view
+        override
+        returns (bool)
+    {
+        // trigger if we want to manually harvest
+        if (forceHarvestTriggerOnce) {
+            return true;
+        }
+
+        // Should not trigger if strategy is not active (no assets and no debtRatio). This means we don't need to adjust keeper job.
+        if (!isActive()) {
+            return false;
+        }
+
+        return super.harvestTrigger(callCostinEth);
+    }
+
+    /* ========== SETTERS ========== */
+
+    // These functions are useful for setting parameters of the strategy that may need to be adjusted.
+
+    // Use to update Yearn's StrategyProxy contract as needed in case of upgrades.
+    function setProxy(address _proxy) external onlyGovernance {
+        proxy = IStrategyVoterProxy(_proxy);
+    }
+
+    // Set the amount of BAL to be locked in Yearn's veBAL voter from each harvest. Default is 10%.
+    function setKeepBAL(uint256 _keepBAL) external onlyAuthorized {
+        require(_keepBAL <= 10_000);
+        keepBAL = _keepBAL;
+    }
+
+    // This allows us to manually harvest with our keeper as needed
+    function setForceHarvestTriggerOnce(bool _forceHarvestTriggerOnce)
+        external
+        onlyAuthorized
+    {
+        forceHarvestTriggerOnce = _forceHarvestTriggerOnce;
+    }
+
     /* ========== YSWAPS ========== */
 
     function setTradeFactory(address _tradeFactory) external onlyGovernance {
@@ -285,10 +337,13 @@ contract StrategyBalancerBoostedPool is StrategyBalancerBase {
             _removeTradeFactoryPermissions();
         }
 
-        // approve and set up trade factory
-        BAL.safeApprove(_tradeFactory, type(uint256).max);
         ITradeFactory tf = ITradeFactory(_tradeFactory);
-        tf.enable(address(BAL), address(want));
+
+        for (uint256 i = 0; i < rewardTokens.length; i++) {
+            address rewardToken = rewardTokens[i];
+            IERC20(rewardToken).safeApprove(_tradeFactory, type(uint256).max);
+            tf.enable(rewardToken, address(want));
+        }
         tradeFactory = _tradeFactory;
     }
 
@@ -297,22 +352,18 @@ contract StrategyBalancerBoostedPool is StrategyBalancerBase {
     }
 
     function _removeTradeFactoryPermissions() internal {
-        BAL.safeApprove(tradeFactory, 0);
+        for (uint256 i = 0; i < rewardTokens.length; i++) {
+            IERC20(rewardTokens[i]).safeApprove(tradeFactory, 0);
+        }
         tradeFactory = address(0);
     }
 
     /* ========== KEEP3RS ========== */
 
-    // convert our keeper's eth cost into want
     function ethToWant(uint256 _ethAmount)
         public
         view
         override
         returns (uint256)
-    {
-        uint256 _amountInUSD =
-            _ethAmount.mul(priceFeed.lastGoodPrice()).div(1e18);
-        return
-            _amountInUSD.mul(1e18).div(IBalancerPool(address(want)).getRate());
-    }
+    {}
 }
