@@ -165,6 +165,38 @@ contract StrategyBalancerClonable is BaseStrategy {
             want.safeTransfer(address(proxy), _toInvest);
             proxy.deposit(gauge, address(want));
         }
+
+        _claimRewards();
+    }
+
+    function claimRewards() external onlyKeepers() {
+        // Should be a harmless function, so 'onlyKeepers' is appropriate
+        _claimRewards();
+    }
+
+    function _claimRewards() internal {
+        // Non-BAL rewards (e.g., LDO)
+        if (rewardTokens.length > 0) {
+            proxy.claimRewards(gauge);
+        }
+
+        // BAL rewards
+        uint256 _stakedBalance = stakedBalance();
+        if (_stakedBalance > 0) {
+            uint256 _balanceOfBalBeforeClaim = BAL.balanceOf(address(this));
+            proxy.claimBal(gauge);
+            uint256 _balClaimed =
+                BAL.balanceOf(address(this)).sub(_balanceOfBalBeforeClaim);
+
+            if (_balClaimed > 0) {
+                uint256 _sendToVoter =
+                    _balClaimed.mul(keepBAL).div(BIPS_DENOMINATOR);
+
+                if (_sendToVoter > 0) {
+                    BAL.safeTransfer(voter, _sendToVoter);
+                }
+            }
+        }
     }
 
     function liquidatePosition(uint256 _amountNeeded)
@@ -211,27 +243,6 @@ contract StrategyBalancerClonable is BaseStrategy {
             uint256 _debtPayment
         )
     {
-        if (rewardTokens.length > 0) {
-            proxy.claimRewards(gauge);
-        }
-
-        uint256 _stakedBalance = stakedBalance();
-        if (_stakedBalance > 0) {
-            uint256 _balanceOfBalBeforeClaim = BAL.balanceOf(address(this));
-            proxy.claimBal(gauge);
-            uint256 _balClaimed =
-                BAL.balanceOf(address(this)).sub(_balanceOfBalBeforeClaim);
-
-            if (_balClaimed > 0) {
-                uint256 _sendToVoter =
-                    _balClaimed.mul(keepBAL).div(BIPS_DENOMINATOR);
-
-                if (_sendToVoter > 0) {
-                    BAL.safeTransfer(voter, _sendToVoter);
-                }
-            }
-        }
-
         // debtOustanding will only be > 0 in the event of revoking or if we need to rebalance from a withdrawal or lowering the debtRatio
         if (_debtOutstanding > 0) {
             uint256 _toWithdraw = _debtOutstanding.sub(balanceOfWant());
