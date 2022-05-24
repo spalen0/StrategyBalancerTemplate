@@ -243,36 +243,35 @@ contract StrategyBalancerClonable is BaseStrategy {
             uint256 _debtPayment
         )
     {
-        // debtOustanding will only be > 0 in the event of revoking or if we need to rebalance from a withdrawal or lowering the debtRatio
-        if (_debtOutstanding > 0) {
-            uint256 _toWithdraw = _debtOutstanding.sub(balanceOfWant());
-            if (_stakedBalance > 0) {
-                // don't bother withdrawing if we don't have staked funds
-                proxy.withdraw(
-                    gauge,
-                    address(want),
-                    Math.min(_stakedBalance, _debtOutstanding)
-                );
-            }
-            _debtPayment = Math.min(_debtOutstanding, balanceOfWant());
+        uint256 totalDebt = vault.strategies(address(this)).totalDebt;
+        uint256 totalAssetsAfterProfit = estimatedTotalAssets();
+
+        _profit = totalAssetsAfterProfit > totalDebt
+            ? totalAssetsAfterProfit.sub(totalDebt)
+            : 0;
+
+        uint256 _amountFreed;
+        uint256 _toLiquidate = _debtOutstanding.add(_profit);
+        if (_toLiquidate > 0) {
+            (_amountFreed, _loss) = liquidatePosition(_toLiquidate);
         }
 
-        // serious loss should never happen, but if it does (for instance, if Balancer is hacked), let's record it accurately
-        uint256 assets = estimatedTotalAssets();
-        uint256 debt = vault.strategies(address(this)).totalDebt;
+        _debtPayment = Math.min(_debtOutstanding, _amountFreed);
 
-        // if assets are greater than debt, things are working great!
-        if (assets > debt) {
-            _profit = assets.sub(debt);
-            uint256 _wantBal = balanceOfWant();
-            if (_profit.add(_debtPayment) > _wantBal) {
-                // this should only be hit following donations to strategy
-                liquidateAllPositions();
-            }
-        }
-        // if assets are less than debt, we are in trouble
-        else {
-            _loss = debt.sub(assets);
+        if (_loss > _profit) {
+            // Example:
+            // debtOutstanding 100, profit 50, _amountFreed 100, _loss 50
+            // loss should be 0, (50-50)
+            // profit should endup in 0
+            _loss = _loss.sub(_profit);
+            _profit = 0;
+        } else {
+            // Example:
+            // debtOutstanding 100, profit 50, _amountFreed 140, _loss 10
+            // _profit should be 40, (50 profit - 10 loss)
+            // loss should end up in 0
+            _profit = _profit.sub(_loss);
+            _loss = 0;
         }
 
         // we're done harvesting, so reset our trigger if we used it
