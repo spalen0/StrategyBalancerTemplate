@@ -288,7 +288,7 @@ contract StrategyBalancerClonable is BaseStrategy {
             IERC20 rewardToken = IERC20(rewardTokens[i]);
             uint256 _strategyBalance = rewardToken.balanceOf(address(this));
             if (_strategyBalance > 0) {
-                rewardToken.transfer(_newStrategy, _strategyBalance);
+                rewardToken.safeTransfer(_newStrategy, _strategyBalance);
             }
         }
     }
