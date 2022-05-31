@@ -38,14 +38,14 @@ contract YearnBalancerVoter is IBalancerVoter {
     address public governance;
     address public proxy;
     IBalancerVault internal constant balancerVault =
-        IBalancerVault(0x20dd72Ed959b6147912C2e529F0a0C651c33c9ce);
+        IBalancerVault(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
     IBalancerPool internal constant stakeLp =
         IBalancerPool(0xcdE5a11a4ACB4eE4c805352Cec57E236bdBC3837);
     address[] internal assets;
 
     constructor() public {
         governance = msg.sender;
-        assets = [address(WETH), address(BAL)];
+        assets = [address(BAL), address(WETH)];
     }
 
     function getName() external pure returns (string memory) {
@@ -127,9 +127,10 @@ contract YearnBalancerVoter is IBalancerVoter {
 
     function _convertBAL(uint256 _amount, bool _join) internal {
         if (_amount > 0) {
+            _checkAllowance(address(balancerVault), BAL, _amount);
             uint256[] memory amounts = new uint256[](2);
             if (_join) {
-                amounts[1] = _amount; // BAL
+                amounts[0] = _amount; // BAL
                 bytes memory userData =
                     abi.encode(
                         IBalancerVault.JoinKind.EXACT_TOKENS_IN_FOR_BPT_OUT,
@@ -144,17 +145,18 @@ contract YearnBalancerVoter is IBalancerVoter {
                         false
                     );
                 balancerVault.joinPool(
-                    stakeLp.getPoolId(),
+                    IBalancerPool(address(balWethLP)).getPoolId(),
                     address(this),
                     address(this),
                     request
                 );
             } else {
+                _checkAllowance(address(balancerVault), balWethLP, _amount);
                 bytes memory userData =
                     abi.encode(
                         IBalancerVault.ExitKind.EXACT_BPT_IN_FOR_ONE_TOKEN_OUT,
                         _amount,
-                        1
+                        0
                     );
                 IBalancerVault.ExitPoolRequest memory request =
                     IBalancerVault.ExitPoolRequest(
@@ -164,7 +166,7 @@ contract YearnBalancerVoter is IBalancerVoter {
                         false
                     );
                 balancerVault.exitPool(
-                    stakeLp.getPoolId(),
+                    IBalancerPool(address(balWethLP)).getPoolId(),
                     address(this),
                     payable(address(this)),
                     request

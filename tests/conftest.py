@@ -39,8 +39,13 @@ def keeper(accounts):
 
 
 @pytest.fixture
-def whale(accounts):
-    address = "0x10A19e7eE7d7F8a52822f6817de8ea18204F2e4f"  # Balancer DAO multisig, might need to be changed if they dispose of it
+def whale(balancer_dao_multisig):
+    yield balancer_dao_multisig
+
+
+@pytest.fixture
+def balancer_dao_multisig(accounts):
+    address = "0x10A19e7eE7d7F8a52822f6817de8ea18204F2e4f"
     yield accounts.at(address, force=True)
 
 
@@ -76,6 +81,30 @@ def want():
 def bal():
     token_address = "0xba100000625a3754423978a60c9317c58a424e3D"
     yield Contract(token_address)
+
+
+@pytest.fixture
+def bal_weth_bpt():  # 80% BAL 20% WETH
+    contract_address = "0x5c6Ee304399DBdB9C8Ef030aB642B10820DB8F56"
+    yield Contract(contract_address)
+
+
+@pytest.fixture
+def ve_bal():
+    token = "0xC128a9954e6c874eA3d62ce62B468bA073093F25"
+    yield Contract(token)
+
+
+@pytest.fixture
+def balancer_authorizer(accounts):
+    address = "0xA331D84eC860Bf466b4CdCcFb4aC09a1B43F3aE6"  # account that can allowlist us as a voter
+    yield accounts.at(address, force=True)
+
+
+@pytest.fixture
+def balancer_smart_wallet_checker():
+    contract_address = "0x7869296Efd0a76872fEE62A058C8fBca5c1c826C"
+    yield Contract(contract_address)
 
 
 @pytest.fixture
