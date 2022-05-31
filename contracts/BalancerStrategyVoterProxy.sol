@@ -46,8 +46,8 @@ contract BalancerStrategyVoterProxy {
         address(0x239e55F427D44C3cc793f49bFB507ebe76638a2b);
     address public constant bal =
         address(0xba100000625a3754423978a60c9317c58a424e3D);
-    address public constant gauge =
-        address(0xC128468b7Ce63eA702C1f104D55A2566b13D3ABD); // Gauge controller
+    address public constant gaugeController =
+        address(0xC128468b7Ce63eA702C1f104D55A2566b13D3ABD);
 
     // gauge => strategies
     mapping(address => address) public strategies;
@@ -82,6 +82,7 @@ contract BalancerStrategyVoterProxy {
         external
         hasRole(ROLE.GOVERNANCE)
     {
+        require(_governance != address(0));
         governance = _governance;
         emit NewGovernance(_governance);
     }
@@ -208,7 +209,7 @@ contract BalancerStrategyVoterProxy {
 
     function vote(address _gauge, uint256 _amount) public hasRole(ROLE.VOTER) {
         voter.safeExecute(
-            gauge,
+            gaugeController,
             0,
             abi.encodeWithSignature(
                 "vote_for_gauge_weights(address,uint256)",
