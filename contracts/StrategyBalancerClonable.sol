@@ -13,7 +13,7 @@ import {IERC20Metadata} from "@yearnvaults/contracts/yToken.sol";
 
 import {BaseStrategy} from "@yearnvaults/contracts/BaseStrategy.sol";
 import {ITradeFactory} from "../interfaces/Yearn/ITradeFactory.sol";
-import {IStrategyVoterProxy} from "../interfaces/Yearn/IStrategyVoterProxy.sol";
+import {BalancerStrategyVoterProxy} from "./BalancerStrategyVoterProxy.sol";
 import {IGauge} from "../interfaces/Balancer/IGauge.sol";
 import {
     IBalancerVault,
@@ -28,8 +28,7 @@ contract StrategyBalancerClonable is BaseStrategy {
     using Address for address;
     using SafeMath for uint256;
 
-    IStrategyVoterProxy public proxy;
-    address public immutable voter; // We don't need to call it, but we need to send BAL to it
+    BalancerStrategyVoterProxy public voterProxy;
     address public gauge; // Gauge that voter stakes in to recieve BAL rewards
 
     address public tradeFactory = address(0);
@@ -53,13 +52,11 @@ contract StrategyBalancerClonable is BaseStrategy {
     bool public isOriginal = true;
     event Cloned(address indexed clone);
 
-    constructor(
-        address _vault,
-        address _proxy,
-        address _voter
-    ) public BaseStrategy(_vault) {
-        voter = _voter;
-        _initializeStrategy(_proxy);
+    constructor(address _vault, address _voterProxy)
+        public
+        BaseStrategy(_vault)
+    {
+        _initializeStrategy(_voterProxy);
     }
 
     function initialize(
@@ -67,16 +64,16 @@ contract StrategyBalancerClonable is BaseStrategy {
         address _strategist,
         address _rewards,
         address _keeper,
-        address _proxy
+        address _voterProxy
     ) external {
         _initialize(_vault, _strategist, _rewards, _keeper);
-        _initializeStrategy(_proxy);
+        _initializeStrategy(_voterProxy);
     }
 
-    function _initializeStrategy(address _proxy) internal {
-        proxy = IStrategyVoterProxy(_proxy);
+    function _initializeStrategy(address _voterProxy) internal {
+        voterProxy = BalancerStrategyVoterProxy(_voterProxy);
 
-        want.safeApprove(address(_proxy), type(uint256).max);
+        want.safeApprove(address(_voterProxy), type(uint256).max);
 
         gauge = liquidityGaugeFactory.getPoolGauge(address(want));
         keepBAL = 1000;
@@ -93,7 +90,7 @@ contract StrategyBalancerClonable is BaseStrategy {
         address _strategist,
         address _rewards,
         address _keeper,
-        address _proxy
+        address _voterProxy
     ) external returns (address newStrategy) {
         require(isOriginal, "!clone");
         bytes20 addressBytes = bytes20(address(this));
@@ -118,7 +115,7 @@ contract StrategyBalancerClonable is BaseStrategy {
             _strategist,
             _rewards,
             _keeper,
-            _proxy
+            _voterProxy
         );
 
         emit Cloned(newStrategy);
@@ -139,8 +136,8 @@ contract StrategyBalancerClonable is BaseStrategy {
         _claimRewards();
     }
 
-    function setProxy(address _proxy) external onlyGovernance {
-        proxy = IStrategyVoterProxy(_proxy);
+    function setVoterProxy(address _voterProxy) external onlyGovernance {
+        voterProxy = BalancerStrategyVoterProxy(_voterProxy);
     }
 
     // Set the amount of BAL to be locked in Yearn's veBAL voter from each harvest. Default is 10%.
@@ -207,7 +204,7 @@ contract StrategyBalancerClonable is BaseStrategy {
     }
 
     function stakedBalance() public view returns (uint256) {
-        return proxy.balanceOf(gauge);
+        return voterProxy.balanceOf(gauge);
     }
 
     function balanceOfWant() public view returns (uint256) {
@@ -232,8 +229,8 @@ contract StrategyBalancerClonable is BaseStrategy {
         // Send all of our LP tokens to the proxy and deposit to the gauge if we have any
         uint256 _toInvest = balanceOfWant();
         if (_toInvest > 0) {
-            want.safeTransfer(address(proxy), _toInvest);
-            proxy.deposit(gauge, address(want));
+            want.safeTransfer(address(voterProxy), _toInvest);
+            voterProxy.deposit(gauge, address(want));
         }
 
         _claimRewards();
@@ -242,14 +239,14 @@ contract StrategyBalancerClonable is BaseStrategy {
     function _claimRewards() internal {
         // Non-BAL rewards (e.g., LDO)
         if (rewardTokens.length > 0) {
-            proxy.claimRewards(gauge);
+            voterProxy.claimRewards(gauge);
         }
 
         // BAL rewards
         uint256 _stakedBalance = stakedBalance();
         if (_stakedBalance > 0) {
             uint256 _balanceOfBalBeforeClaim = BAL.balanceOf(address(this));
-            proxy.claimBal(gauge);
+            voterProxy.claimBal(gauge);
             uint256 _balClaimed =
                 BAL.balanceOf(address(this)).sub(_balanceOfBalBeforeClaim);
 
@@ -258,7 +255,7 @@ contract StrategyBalancerClonable is BaseStrategy {
                     _balClaimed.mul(keepBAL).div(BIPS_DENOMINATOR);
 
                 if (_sendToVoter > 0) {
-                    BAL.safeTransfer(voter, _sendToVoter);
+                    BAL.safeTransfer(address(voterProxy), _sendToVoter); // So that strategy doesn't need to know about voter, we send BAL via voter proxy
                 }
             }
         }
@@ -274,7 +271,7 @@ contract StrategyBalancerClonable is BaseStrategy {
             // check if we have enough free funds to cover the withdrawal
             uint256 _stakedBalance = stakedBalance();
             if (_stakedBalance > 0) {
-                proxy.withdraw(
+                voterProxy.withdraw(
                     gauge,
                     address(want),
                     Math.min(_stakedBalance, _amountNeeded.sub(_wantBalance))
@@ -294,7 +291,7 @@ contract StrategyBalancerClonable is BaseStrategy {
         uint256 _stakedBalance = stakedBalance();
         if (_stakedBalance > 0) {
             // don't bother withdrawing zero
-            proxy.withdraw(gauge, address(want), _stakedBalance);
+            voterProxy.withdraw(gauge, address(want), _stakedBalance);
         }
         return balanceOfWant();
     }
@@ -346,7 +343,7 @@ contract StrategyBalancerClonable is BaseStrategy {
     function prepareMigration(address _newStrategy) internal override {
         uint256 _stakedBalance = stakedBalance();
         if (_stakedBalance > 0) {
-            proxy.withdraw(gauge, address(want), _stakedBalance);
+            voterProxy.withdraw(gauge, address(want), _stakedBalance);
         }
 
         for (uint256 i = 0; i < rewardTokens.length; i++) {

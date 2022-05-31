@@ -14,7 +14,6 @@ def test_migration(
     trade_factory,
     ymechs_safe,
     voter_proxy,
-    yearn_balancer_voter,
     RELATIVE_APPROX,
 ):
     # Deposit to the vault and harvest
@@ -35,7 +34,6 @@ def test_migration(
         StrategyBalancerClonable,
         vault,
         voter_proxy,
-        yearn_balancer_voter,
     )
     vault.migrateStrategy(strategy, new_strategy, {"from": gov})
     assert (

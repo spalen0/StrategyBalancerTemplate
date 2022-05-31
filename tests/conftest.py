@@ -150,7 +150,6 @@ def strategy(
     keeper,
     strategist,
     gov,
-    yearn_balancer_voter,
     voter_proxy,
     gauge,
 ):
@@ -158,7 +157,6 @@ def strategy(
         StrategyBalancerClonable,
         vault,
         voter_proxy,
-        yearn_balancer_voter,
     )
     strategy.setKeeper(keeper, {"from": gov})
     trade_factory.grantRole(
@@ -174,11 +172,20 @@ def strategy(
 
 
 @pytest.fixture
-def yearn_balancer_voter(YearnBalancerVoter, strategist, gov):
+def yearn_balancer_voter(
+    YearnBalancerVoter,
+    strategist,
+    gov,
+    balancer_smart_wallet_checker,
+    balancer_dao_multisig,
+):
     yearn_balancer_voter = strategist.deploy(YearnBalancerVoter)
 
     yearn_balancer_voter.setGovernance(gov, {"from": strategist})
     yearn_balancer_voter.acceptGovernance({"from": gov})
+    balancer_smart_wallet_checker.allowlistAddress(
+        yearn_balancer_voter, {"from": balancer_dao_multisig}
+    )
 
     yield yearn_balancer_voter
 

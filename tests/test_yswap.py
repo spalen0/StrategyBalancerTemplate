@@ -14,6 +14,7 @@ def test_profitable_harvest(
     amount,
     user,
     strategist,
+    voter_proxy,
     yearn_balancer_voter,
     gauge,
     balancer_vault,
@@ -35,6 +36,7 @@ def test_profitable_harvest(
     chain.sleep(60 * 60 * 24 * 7)
 
     strategy.harvest({"from": strategist})
+    voter_proxy.transferBALToVoter({"from": user})
 
     assert bal.balanceOf(strategy) > 0
     assert (

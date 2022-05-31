@@ -11,13 +11,13 @@ import {
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Math} from "@openzeppelin/contracts/math/Math.sol";
 
-import {IBalancerVoter} from "../interfaces/Yearn/IBalancerVoter.sol";
-
 import {IGauge} from "../interfaces/Balancer/IGauge.sol";
+
+import {YearnBalancerVoter} from "./YearnBalancerVoter.sol";
 
 library SafeVoter {
     function safeExecute(
-        IBalancerVoter voter,
+        YearnBalancerVoter voter,
         address to,
         uint256 value,
         bytes memory data
@@ -36,11 +36,11 @@ contract BalancerStrategyVoterProxy {
     using SafeERC20 for IERC20;
     using Address for address;
     using SafeMath for uint256;
-    using SafeVoter for IBalancerVoter;
+    using SafeVoter for YearnBalancerVoter;
 
     enum ROLE {GOVERNANCE, VOTER, LOCKER}
 
-    IBalancerVoter public voter;
+    YearnBalancerVoter public voter;
 
     address public constant balMinter =
         address(0x239e55F427D44C3cc793f49bFB507ebe76638a2b);
@@ -75,7 +75,7 @@ contract BalancerStrategyVoterProxy {
 
     constructor(address _voter) public {
         governance = msg.sender;
-        voter = IBalancerVoter(_voter);
+        voter = YearnBalancerVoter(_voter);
     }
 
     function setGovernance(address _governance)
@@ -123,18 +123,26 @@ contract BalancerStrategyVoterProxy {
     }
 
     function lock() external {
-        voter.increaseAmountMax(false); // Unprotected function shouldn't sell BAL
+        voter.increaseAmountMax();
+    }
+
+    function transferBALToVoter() external {
+        IERC20(bal).transfer(
+            address(voter),
+            IERC20(bal).balanceOf(address(this))
+        );
     }
 
     function convertAndLockMax() external hasRole(ROLE.LOCKER) {
-        voter.increaseAmountMax(true);
+        voter.convertLooseBALIntoBPT();
+        voter.increaseAmountMax();
     }
 
     function convertAndLockExact(uint256 _amount)
         external
         hasRole(ROLE.LOCKER)
     {
-        if (_amount > 0) voter.increaseAmountExact(_amount, true);
+        if (_amount > 0) voter.increaseAmountExact(_amount);
     }
 
     function withdrawAll(address _gauge, address _token)
@@ -207,7 +215,10 @@ contract BalancerStrategyVoterProxy {
         );
     }
 
-    function vote(address _gauge, uint256 _amount) public hasRole(ROLE.VOTER) {
+    function vote(address _gauge, uint256 _amount)
+        external
+        hasRole(ROLE.VOTER)
+    {
         voter.safeExecute(
             gaugeController,
             0,

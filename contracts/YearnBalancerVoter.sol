@@ -10,8 +10,6 @@ import {
 } from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/math/Math.sol";
 
-import {IBalancerVoter} from "../interfaces/Yearn/IBalancerVoter.sol";
-
 import {IVoteEscrow} from "../interfaces/Balancer/IVoteEscrow.sol";
 import {
     IBalancerPool,
@@ -21,7 +19,7 @@ import {
 /**
  * @dev Where Yearn stores veBAL and boosted BPTs (balancer's LP tokens).
  */
-contract YearnBalancerVoter is IBalancerVoter {
+contract YearnBalancerVoter {
     using SafeERC20 for IERC20;
     using Address for address;
     using SafeMath for uint256;
@@ -54,6 +52,16 @@ contract YearnBalancerVoter is IBalancerVoter {
         assets = [address(BAL), address(WETH)];
     }
 
+    function execute(
+        address to,
+        uint256 value,
+        bytes calldata data
+    ) external onlyProxyOrGovernance returns (bool, bytes memory) {
+        (bool success, bytes memory result) = to.call{value: value}(data);
+
+        return (success, result);
+    }
+
     function getName() external pure returns (string memory) {
         return "YearnBalancerVoter";
     }
@@ -79,39 +87,24 @@ contract YearnBalancerVoter is IBalancerVoter {
         _asset.safeTransfer(proxy, _asset.balanceOf(address(this)));
     }
 
-    function createLock(
-        uint256 _value,
-        uint256 _unlockTime,
-        bool _convert
-    ) external onlyProxyOrGovernance {
-        if (_convert) {
-            _convertAvailableBALIntoBalWethBPT();
-        }
+    function createLock(uint256 _value, uint256 _unlockTime)
+        external
+        onlyProxyOrGovernance
+    {
         _checkAllowance(address(veBAL), balWethLP, _value);
         veBAL.create_lock(_value, _unlockTime);
     }
 
-    function increaseAmountMax(bool _convert)
-        external
-        override
-        onlyProxyOrGovernance
-    {
-        if (_convert) {
-            _convertAvailableBALIntoBalWethBPT();
-        }
+    function increaseAmountMax() external onlyProxyOrGovernance {
         uint256 _balanceOfBPT = balWethLP.balanceOf(address(this));
         _checkAllowance(address(veBAL), balWethLP, _balanceOfBPT);
         veBAL.increase_amount(_balanceOfBPT);
     }
 
-    function increaseAmountExact(uint256 _amount, bool _convert)
+    function increaseAmountExact(uint256 _amount)
         external
-        override
         onlyProxyOrGovernance
     {
-        if (_convert) {
-            _convertAvailableBALIntoBalWethBPT();
-        }
         uint256 _balanceOfBPT = balWethLP.balanceOf(address(this));
         require(_amount <= _balanceOfBPT, "!too_much");
         _checkAllowance(address(veBAL), balWethLP, _amount);
@@ -122,78 +115,67 @@ contract YearnBalancerVoter is IBalancerVoter {
         veBAL.withdraw();
     }
 
-    function convertBAL(uint256 _amount, bool _join)
-        external
-        onlyProxyOrGovernance
-    {
-        _convertBAL(_amount, _join);
+    function convertBALIntoBPT(uint256 _amount) external onlyProxyOrGovernance {
+        _convertBALIntoBPT(_amount);
     }
 
-    function execute(
-        address to,
-        uint256 value,
-        bytes calldata data
-    ) external override onlyProxyOrGovernance returns (bool, bytes memory) {
-        (bool success, bytes memory result) = to.call{value: value}(data);
-
-        return (success, result);
-    }
-
-    function _convertAvailableBALIntoBalWethBPT() internal {
+    function convertLooseBALIntoBPT() external onlyProxyOrGovernance {
         uint256 _balanceOfBal = BAL.balanceOf(address(this));
         if (_balanceOfBal > 0) {
-            _convertBAL(_balanceOfBal, true);
+            _convertBALIntoBPT(_balanceOfBal);
         }
     }
 
-    function _convertBAL(uint256 _amount, bool _join) internal {
-        if (_amount > 0) {
-            _checkAllowance(address(balancerVault), BAL, _amount);
-            uint256[] memory amounts = new uint256[](2);
-            if (_join) {
-                amounts[0] = _amount; // BAL
-                bytes memory userData =
-                    abi.encode(
-                        IBalancerVault.JoinKind.EXACT_TOKENS_IN_FOR_BPT_OUT,
-                        amounts,
-                        0
-                    );
-                IBalancerVault.JoinPoolRequest memory request =
-                    IBalancerVault.JoinPoolRequest(
-                        assets,
-                        amounts,
-                        userData,
-                        false
-                    );
-                balancerVault.joinPool(
-                    IBalancerPool(address(balWethLP)).getPoolId(),
-                    address(this),
-                    address(this),
-                    request
-                );
-            } else {
-                _checkAllowance(address(balancerVault), balWethLP, _amount);
-                bytes memory userData =
-                    abi.encode(
-                        IBalancerVault.ExitKind.EXACT_BPT_IN_FOR_ONE_TOKEN_OUT,
-                        _amount,
-                        0
-                    );
-                IBalancerVault.ExitPoolRequest memory request =
-                    IBalancerVault.ExitPoolRequest(
-                        assets,
-                        amounts,
-                        userData,
-                        false
-                    );
-                balancerVault.exitPool(
-                    IBalancerPool(address(balWethLP)).getPoolId(),
-                    address(this),
-                    payable(address(this)),
-                    request
-                );
-            }
+    function convertBPTIntoBAL(uint256 _amount) external onlyProxyOrGovernance {
+        _convertBPTIntoBAL(_amount);
+    }
+
+    function convertLooseBPTIntoBAL() external onlyProxyOrGovernance {
+        uint256 _balanceOfBpt = balWethLP.balanceOf(address(this));
+        if (_balanceOfBpt > 0) {
+            _convertBPTIntoBAL(_balanceOfBpt);
         }
+    }
+
+    // Converts BAL into the BAL/WETH BPT used for veBAL
+    function _convertBALIntoBPT(uint256 _amount) internal {
+        _checkAllowance(address(balancerVault), BAL, _amount);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = _amount; // BAL
+        bytes memory userData =
+            abi.encode(
+                IBalancerVault.JoinKind.EXACT_TOKENS_IN_FOR_BPT_OUT,
+                amounts,
+                0
+            );
+        IBalancerVault.JoinPoolRequest memory request =
+            IBalancerVault.JoinPoolRequest(assets, amounts, userData, false);
+        balancerVault.joinPool(
+            IBalancerPool(address(balWethLP)).getPoolId(),
+            address(this),
+            address(this),
+            request
+        );
+    }
+
+    function _convertBPTIntoBAL(uint256 _amount) internal {
+        _checkAllowance(address(balancerVault), balWethLP, _amount);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = _amount;
+        bytes memory userData =
+            abi.encode(
+                IBalancerVault.ExitKind.EXACT_BPT_IN_FOR_ONE_TOKEN_OUT,
+                _amount,
+                0
+            );
+        IBalancerVault.ExitPoolRequest memory request =
+            IBalancerVault.ExitPoolRequest(assets, amounts, userData, false);
+        balancerVault.exitPool(
+            IBalancerPool(address(balWethLP)).getPoolId(),
+            address(this),
+            payable(address(this)),
+            request
+        );
     }
 
     // _checkAllowance adapted from https://github.com/therealmonoloco/liquity-stability-pool-strategy/blob/1fb0b00d24e0f5621f1e57def98c26900d551089/contracts/Strategy.sol#L316

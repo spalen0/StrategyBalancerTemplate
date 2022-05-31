@@ -2,15 +2,13 @@ import pytest
 import brownie
 
 
-def test_basic_proxy_functions(
+def test_vote(
     chain,
     voter_proxy,
     user,
     bal,
     whale,
     yearn_balancer_voter,
-    balancer_smart_wallet_checker,
-    balancer_dao_multisig,
     ve_bal,
     bal_weth_bpt,
     gauge,
@@ -25,17 +23,12 @@ def test_basic_proxy_functions(
 
     bal.transfer(yearn_balancer_voter, original_bal_transfer, {"from": whale})
 
-    balancer_smart_wallet_checker.allowlistAddress(
-        yearn_balancer_voter, {"from": balancer_dao_multisig}
-    )
-
     assert ve_bal.balanceOf(yearn_balancer_voter) == 0
 
-    yearn_balancer_voter.convertBAL(original_bal_transfer, True, {"from": gov})
+    yearn_balancer_voter.convertLooseBALIntoBPT({"from": gov})
     yearn_balancer_voter.createLock(
         bal_weth_bpt.balanceOf(yearn_balancer_voter),
         chain.time() + (60 * 60 * 24 * 60),
-        False,
         {"from": gov},
     )  # lock for 30 days
 
