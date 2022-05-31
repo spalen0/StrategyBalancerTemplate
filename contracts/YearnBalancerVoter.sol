@@ -36,12 +36,18 @@ contract YearnBalancerVoter is IBalancerVoter {
         IVoteEscrow(0xC128a9954e6c874eA3d62ce62B468bA073093F25);
 
     address public governance;
+    address public pendingGovernance;
     address public proxy;
     IBalancerVault internal constant balancerVault =
         IBalancerVault(0xBA12222222228d8Ba445958a75a0704d566BF2C8);
     IBalancerPool internal constant stakeLp =
         IBalancerPool(0xcdE5a11a4ACB4eE4c805352Cec57E236bdBC3837);
     address[] internal assets;
+
+    modifier onlyProxyOrGovernance() {
+        require(msg.sender == proxy || msg.sender == governance, "!authorized");
+        _;
+    }
 
     constructor() public {
         governance = msg.sender;
@@ -59,7 +65,12 @@ contract YearnBalancerVoter is IBalancerVoter {
 
     function setGovernance(address _governance) external {
         require(msg.sender == governance, "!governance");
-        governance = _governance;
+        pendingGovernance = _governance;
+    }
+
+    function acceptGovernance() external {
+        require(msg.sender == pendingGovernance, "!pending_governance");
+        governance = msg.sender;
     }
 
     // Controller only function for creating additional rewards from dust
@@ -118,6 +129,16 @@ contract YearnBalancerVoter is IBalancerVoter {
         _convertBAL(_amount, _join);
     }
 
+    function execute(
+        address to,
+        uint256 value,
+        bytes calldata data
+    ) external override onlyProxyOrGovernance returns (bool, bytes memory) {
+        (bool success, bytes memory result) = to.call{value: value}(data);
+
+        return (success, result);
+    }
+
     function _convertAvailableBALIntoBalWethBPT() internal {
         uint256 _balanceOfBal = BAL.balanceOf(address(this));
         if (_balanceOfBal > 0) {
@@ -173,21 +194,6 @@ contract YearnBalancerVoter is IBalancerVoter {
                 );
             }
         }
-    }
-
-    function execute(
-        address to,
-        uint256 value,
-        bytes calldata data
-    ) external override onlyProxyOrGovernance returns (bool, bytes memory) {
-        (bool success, bytes memory result) = to.call{value: value}(data);
-
-        return (success, result);
-    }
-
-    modifier onlyProxyOrGovernance() {
-        require(msg.sender == proxy || msg.sender == governance, "!authorized");
-        _;
     }
 
     // _checkAllowance adapted from https://github.com/therealmonoloco/liquity-stability-pool-strategy/blob/1fb0b00d24e0f5621f1e57def98c26900d551089/contracts/Strategy.sol#L316

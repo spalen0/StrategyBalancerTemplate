@@ -15,6 +15,18 @@ import {IBalancerVoter} from "../interfaces/Yearn/IBalancerVoter.sol";
 
 import {IGauge} from "../interfaces/Balancer/IGauge.sol";
 
+library SafeVoter {
+    function safeExecute(
+        IBalancerVoter voter,
+        address to,
+        uint256 value,
+        bytes memory data
+    ) internal {
+        (bool success, ) = voter.execute(to, value, data);
+        require(success);
+    }
+}
+
 /**
  * @dev Yearn strategies which auto-compound BPT tokens communicate with the Yearn
  * Balancer voter through this contract. We use a proxy because the voter itself holds
@@ -26,13 +38,7 @@ contract BalancerStrategyVoterProxy {
     using SafeMath for uint256;
     using SafeVoter for IBalancerVoter;
 
-    event VoterApproved(address voter);
-    event VoterRevoked(address voter);
-    event LockerApproved(address locker);
-    event LockerRevoked(address locker);
-    event StrategyApproved(address strategy);
-    event StrategyRevoked(address strategy);
-    event NewGovernance(address governance);
+    enum ROLE {GOVERNANCE, VOTER, LOCKER}
 
     IBalancerVoter public voter;
 
@@ -49,12 +55,13 @@ contract BalancerStrategyVoterProxy {
     mapping(address => bool) public lockers;
     address public governance;
 
-    constructor(address _voter) public {
-        governance = msg.sender;
-        voter = IBalancerVoter(_voter);
-    }
-
-    enum ROLE {GOVERNANCE, VOTER, LOCKER}
+    event VoterApproved(address voter);
+    event VoterRevoked(address voter);
+    event LockerApproved(address locker);
+    event LockerRevoked(address locker);
+    event StrategyApproved(address strategy);
+    event StrategyRevoked(address strategy);
+    event NewGovernance(address governance);
 
     modifier hasRole(ROLE _role) {
         _checkRole(_role);
@@ -66,14 +73,9 @@ contract BalancerStrategyVoterProxy {
         _;
     }
 
-    function _checkRole(ROLE _role) internal view {
-        if (_role == ROLE.GOVERNANCE) {
-            require(msg.sender == governance, "!governance");
-        } else if (_role == ROLE.VOTER) {
-            require(voters[msg.sender], "!voter");
-        } else {
-            require(lockers[msg.sender], "!locker");
-        }
+    constructor(address _voter) public {
+        governance = msg.sender;
+        voter = IBalancerVoter(_voter);
     }
 
     function setGovernance(address _governance)
@@ -132,46 +134,6 @@ contract BalancerStrategyVoterProxy {
         hasRole(ROLE.LOCKER)
     {
         if (_amount > 0) voter.increaseAmountExact(_amount, true);
-    }
-
-    function vote(address _gauge, uint256 _amount) public hasRole(ROLE.VOTER) {
-        voter.safeExecute(
-            gauge,
-            0,
-            abi.encodeWithSignature(
-                "vote_for_gauge_weights(address,uint256)",
-                _gauge,
-                _amount
-            )
-        );
-    }
-
-    function withdraw(
-        address _gauge,
-        address _token,
-        uint256 _amount
-    ) public isStrategy(_gauge) returns (uint256) {
-        uint256 _balance = IERC20(_token).balanceOf(address(voter));
-        voter.safeExecute(
-            _gauge,
-            0,
-            abi.encodeWithSignature("withdraw(uint256)", _amount)
-        );
-        _balance = IERC20(_token).balanceOf(address(voter)).sub(_balance);
-        voter.safeExecute(
-            _token,
-            0,
-            abi.encodeWithSignature(
-                "transfer(address,uint256)",
-                msg.sender,
-                _balance
-            )
-        );
-        return _balance;
-    }
-
-    function balanceOf(address _gauge) public view returns (uint256) {
-        return IERC20(_gauge).balanceOf(address(voter));
     }
 
     function withdrawAll(address _gauge, address _token)
@@ -243,16 +205,54 @@ contract BalancerStrategyVoterProxy {
             )
         );
     }
-}
 
-library SafeVoter {
-    function safeExecute(
-        IBalancerVoter voter,
-        address to,
-        uint256 value,
-        bytes memory data
-    ) internal {
-        (bool success, ) = voter.execute(to, value, data);
-        require(success);
+    function vote(address _gauge, uint256 _amount) public hasRole(ROLE.VOTER) {
+        voter.safeExecute(
+            gauge,
+            0,
+            abi.encodeWithSignature(
+                "vote_for_gauge_weights(address,uint256)",
+                _gauge,
+                _amount
+            )
+        );
+    }
+
+    function withdraw(
+        address _gauge,
+        address _token,
+        uint256 _amount
+    ) public isStrategy(_gauge) returns (uint256) {
+        uint256 _balance = IERC20(_token).balanceOf(address(voter));
+        voter.safeExecute(
+            _gauge,
+            0,
+            abi.encodeWithSignature("withdraw(uint256)", _amount)
+        );
+        _balance = IERC20(_token).balanceOf(address(voter)).sub(_balance);
+        voter.safeExecute(
+            _token,
+            0,
+            abi.encodeWithSignature(
+                "transfer(address,uint256)",
+                msg.sender,
+                _balance
+            )
+        );
+        return _balance;
+    }
+
+    function balanceOf(address _gauge) public view returns (uint256) {
+        return IERC20(_gauge).balanceOf(address(voter));
+    }
+
+    function _checkRole(ROLE _role) internal view {
+        if (_role == ROLE.GOVERNANCE) {
+            require(msg.sender == governance, "!governance");
+        } else if (_role == ROLE.VOTER) {
+            require(voters[msg.sender], "!voter");
+        } else {
+            require(lockers[msg.sender], "!locker");
+        }
     }
 }

@@ -178,6 +178,7 @@ def yearn_balancer_voter(YearnBalancerVoter, strategist, gov):
     yearn_balancer_voter = strategist.deploy(YearnBalancerVoter)
 
     yearn_balancer_voter.setGovernance(gov, {"from": strategist})
+    yearn_balancer_voter.acceptGovernance({"from": gov})
 
     yield yearn_balancer_voter
 

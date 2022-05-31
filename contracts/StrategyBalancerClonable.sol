@@ -28,8 +28,6 @@ contract StrategyBalancerClonable is BaseStrategy {
     using Address for address;
     using SafeMath for uint256;
 
-    /* ========== STATE VARIABLES ========== */
-
     IStrategyVoterProxy public proxy;
     address public immutable voter; // We don't need to call it, but we need to send BAL to it
     address public gauge; // Gauge that voter stakes in to recieve BAL rewards
@@ -54,8 +52,6 @@ contract StrategyBalancerClonable is BaseStrategy {
 
     bool public isOriginal = true;
     event Cloned(address indexed clone);
-
-    /* ========== CONSTRUCTOR ========== */
 
     constructor(
         address _vault,
@@ -128,8 +124,6 @@ contract StrategyBalancerClonable is BaseStrategy {
         emit Cloned(newStrategy);
     }
 
-    /* ========== VIEWS ========== */
-
     function name() external view override returns (string memory) {
         return
             string(
@@ -138,6 +132,78 @@ contract StrategyBalancerClonable is BaseStrategy {
                     IERC20Metadata(address(want)).symbol()
                 )
             );
+    }
+
+    function claimRewards() external onlyKeepers() {
+        // Should be a harmless function, so 'onlyKeepers' is appropriate
+        _claimRewards();
+    }
+
+    function setProxy(address _proxy) external onlyGovernance {
+        proxy = IStrategyVoterProxy(_proxy);
+    }
+
+    // Set the amount of BAL to be locked in Yearn's veBAL voter from each harvest. Default is 10%.
+    function setKeepBAL(uint256 _keepBAL) external onlyAuthorized {
+        require(_keepBAL <= 10_000);
+        keepBAL = _keepBAL;
+    }
+
+    // This allows us to manually harvest with our keeper as needed
+    function setForceHarvestTriggerOnce(bool _forceHarvestTriggerOnce)
+        external
+        onlyAuthorized
+    {
+        forceHarvestTriggerOnce = _forceHarvestTriggerOnce;
+    }
+
+    function setTradeFactory(address _tradeFactory) external onlyGovernance {
+        if (tradeFactory != address(0)) {
+            _removeTradeFactoryPermissions();
+        }
+
+        ITradeFactory tf = ITradeFactory(_tradeFactory);
+
+        BAL.safeApprove(_tradeFactory, type(uint256).max);
+        tf.enable(address(BAL), address(want));
+
+        for (uint256 i = 0; i < rewardTokens.length; i++) {
+            address rewardToken = rewardTokens[i];
+            IERC20(rewardToken).safeApprove(_tradeFactory, type(uint256).max);
+            tf.enable(rewardToken, address(want));
+        }
+        tradeFactory = _tradeFactory;
+    }
+
+    function removeTradeFactoryPermissions() external onlyEmergencyAuthorized {
+        _removeTradeFactoryPermissions();
+    }
+
+    function harvestTrigger(uint256 callCostinEth)
+        public
+        view
+        override
+        returns (bool)
+    {
+        // trigger if we want to manually harvest
+        if (forceHarvestTriggerOnce) {
+            return true;
+        }
+
+        // Should not trigger if strategy is not active (no assets and no debtRatio). This means we don't need to adjust keeper job.
+        if (!isActive()) {
+            return false;
+        }
+
+        return super.harvestTrigger(callCostinEth);
+    }
+
+    function _removeTradeFactoryPermissions() internal {
+        BAL.safeApprove(tradeFactory, 0);
+        for (uint256 i = 0; i < rewardTokens.length; i++) {
+            IERC20(rewardTokens[i]).safeApprove(tradeFactory, 0);
+        }
+        tradeFactory = address(0);
     }
 
     function stakedBalance() public view returns (uint256) {
@@ -152,8 +218,12 @@ contract StrategyBalancerClonable is BaseStrategy {
         return balanceOfWant().add(stakedBalance());
     }
 
-    /* ========== MUTATIVE FUNCTIONS ========== */
-    // these should stay the same across different wants.
+    function ethToWant(uint256 _ethAmount)
+        public
+        view
+        override
+        returns (uint256)
+    {}
 
     function adjustPosition(uint256 _debtOutstanding) internal override {
         if (emergencyExit) {
@@ -166,11 +236,6 @@ contract StrategyBalancerClonable is BaseStrategy {
             proxy.deposit(gauge, address(want));
         }
 
-        _claimRewards();
-    }
-
-    function claimRewards() external onlyKeepers() {
-        // Should be a harmless function, so 'onlyKeepers' is appropriate
         _claimRewards();
     }
 
@@ -298,90 +363,5 @@ contract StrategyBalancerClonable is BaseStrategy {
         view
         override
         returns (address[] memory)
-    {}
-
-    /* ========== KEEP3RS ========== */
-
-    function harvestTrigger(uint256 callCostinEth)
-        public
-        view
-        override
-        returns (bool)
-    {
-        // trigger if we want to manually harvest
-        if (forceHarvestTriggerOnce) {
-            return true;
-        }
-
-        // Should not trigger if strategy is not active (no assets and no debtRatio). This means we don't need to adjust keeper job.
-        if (!isActive()) {
-            return false;
-        }
-
-        return super.harvestTrigger(callCostinEth);
-    }
-
-    /* ========== SETTERS ========== */
-
-    // These functions are useful for setting parameters of the strategy that may need to be adjusted.
-
-    // Use to update Yearn's StrategyProxy contract as needed in case of upgrades.
-    function setProxy(address _proxy) external onlyGovernance {
-        proxy = IStrategyVoterProxy(_proxy);
-    }
-
-    // Set the amount of BAL to be locked in Yearn's veBAL voter from each harvest. Default is 10%.
-    function setKeepBAL(uint256 _keepBAL) external onlyAuthorized {
-        require(_keepBAL <= 10_000);
-        keepBAL = _keepBAL;
-    }
-
-    // This allows us to manually harvest with our keeper as needed
-    function setForceHarvestTriggerOnce(bool _forceHarvestTriggerOnce)
-        external
-        onlyAuthorized
-    {
-        forceHarvestTriggerOnce = _forceHarvestTriggerOnce;
-    }
-
-    /* ========== YSWAPS ========== */
-
-    function setTradeFactory(address _tradeFactory) external onlyGovernance {
-        if (tradeFactory != address(0)) {
-            _removeTradeFactoryPermissions();
-        }
-
-        ITradeFactory tf = ITradeFactory(_tradeFactory);
-
-        BAL.safeApprove(_tradeFactory, type(uint256).max);
-        tf.enable(address(BAL), address(want));
-
-        for (uint256 i = 0; i < rewardTokens.length; i++) {
-            address rewardToken = rewardTokens[i];
-            IERC20(rewardToken).safeApprove(_tradeFactory, type(uint256).max);
-            tf.enable(rewardToken, address(want));
-        }
-        tradeFactory = _tradeFactory;
-    }
-
-    function removeTradeFactoryPermissions() external onlyEmergencyAuthorized {
-        _removeTradeFactoryPermissions();
-    }
-
-    function _removeTradeFactoryPermissions() internal {
-        BAL.safeApprove(tradeFactory, 0);
-        for (uint256 i = 0; i < rewardTokens.length; i++) {
-            IERC20(rewardTokens[i]).safeApprove(tradeFactory, 0);
-        }
-        tradeFactory = address(0);
-    }
-
-    /* ========== KEEP3RS ========== */
-
-    function ethToWant(uint256 _ethAmount)
-        public
-        view
-        override
-        returns (uint256)
     {}
 }
