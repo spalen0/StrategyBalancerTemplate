@@ -39,7 +39,7 @@ def tests_using_tenderly():
 def whale(accounts):
     # Totally in it for the tech
     # Update this with a large holder of your want token (the largest EOA holder of LP)
-    whale = accounts.at("0x8ee11C71FcC883327BCB586A08E508a653D685b0", force=True)
+    whale = accounts.at("0xcb8883d1d8c560003489df43b30612aabb8013bb", force=True)
     yield whale
 
 
