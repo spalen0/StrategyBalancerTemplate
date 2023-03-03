@@ -31,8 +31,8 @@ abstract contract StrategyCurveBase is BaseStrategy {
     address internal constant uniswap =
         0xE592427A0AEce92De3Edee1F18E0157C05861564; // we use this to sell our bonus token
 
-    IERC20 internal constant usdc =
-        IERC20(0x7F5c764cBc14f9669B88837ca1490cCa17c31607);
+    IERC20 internal constant sUsdc =
+        IERC20(0x8c6f28f2F1A3C87F0f938b96d27520d9751ec8d9);
     IERC20 internal constant crv =
         IERC20(0x0994206dfE8De6Ec6920FF4D779B0d950605Fb53);
     IERC20 internal constant weth =
@@ -237,9 +237,11 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
         // these are our standard approvals. want = Curve LP token
         want.approve(address(_gauge), type(uint256).max);
         crv.approve(address(uniswap), type(uint256).max);
+        weth.approve(address(uniswap), type(uint256).max);
 
         // this is the pool specific to this vault
         curve = ICurveFi(_curvePool);
+        sUsdc.approve(_curvePool, type(uint256).max);
 
         // set our curve gauge contract
         gauge = IGauge(_gauge);
@@ -304,17 +306,17 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
             _sellTokenToTokenUniV3(address(crv), address(weth), feeCRVETH, _crvBalance);
         }
 
-        // sell weth to usdc, maybe skip this step
+        // sell weth to sUsdc, maybe skip this step
         uint256 wethBalance = weth.balanceOf(address(this));
         if (wethBalance > 1e14) {
-            _sellTokenToTokenUniV3(address(weth), address(usdc), feeETHUSDC, _crvBalance);
+            _sellTokenToTokenUniV3(address(weth), address(sUsdc), feeETHUSDC, wethBalance);
         }
 
-        // deposit our usdc to the pool
-        uint256 usdcBalance = usdc.balanceOf(address(this));
-        if (usdcBalance > 0) {
+        // deposit our sUsdc to the pool
+        uint256 sUsdcBalance = sUsdc.balanceOf(address(this));
+        if (sUsdcBalance > 0) {
             // curve.add_liquidity([ethBalance, 0], 0);
-            curve.add_liquidity([0, 0, usdcBalance, 0], 0);
+            curve.add_liquidity([sUsdcBalance, 0], 0);
         }
 
         // debtOustanding will only be > 0 in the event of revoking or if we need to rebalance from a withdrawal or lowering the debtRatio
