@@ -31,6 +31,8 @@ abstract contract StrategyCurveBase is BaseStrategy {
     address internal constant uniswap =
         0xE592427A0AEce92De3Edee1F18E0157C05861564; // we use this to sell our bonus token
 
+    IERC20 internal constant usdc =
+        IERC20(0x7F5c764cBc14f9669B88837ca1490cCa17c31607);
     IERC20 internal constant crv =
         IERC20(0x0994206dfE8De6Ec6920FF4D779B0d950605Fb53);
     IERC20 internal constant weth =
@@ -137,6 +139,7 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
     ICurveFi public curve; ///@notice This is our curve pool specific to this vault
     uint24 public feeCRVETH;
     uint24 public feeOPETH;
+    uint24 public feeETHUSDC;
 
     // rewards token info. we can have more than 1 reward token but this is rare, so we don't include this in the template
     IERC20 public rewardsToken;
@@ -255,6 +258,10 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
         feeOPETH = _newFeeOPETH;
     }
 
+    function setFeeETHUSDC(uint24 _newFeeETHUSDC) external onlyVaultManagers {
+        feeETHUSDC = _newFeeETHUSDC;
+    }
+
     function prepareReturn(uint256 _debtOutstanding)
         internal
         override
@@ -288,17 +295,26 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
             gauge.claim_rewards();
             uint256 _rewardsBalance = rewardsToken.balanceOf(address(this));
             if (_rewardsBalance > 0) {
-                _sellTokenToWethUniV3(address(rewardsToken), feeOPETH, _rewardsBalance);
+                _sellTokenToTokenUniV3(address(rewardsToken), address(weth), feeOPETH, _rewardsBalance);
             }
         }
 
-        // do this even if we don't have any CRV, in case we have WETH
-        _sell(_crvBalance);
+        if (_crvBalance > 1e17) {
+            // don't want to swap dust or we might revert
+            _sellTokenToTokenUniV3(address(crv), address(weth), feeCRVETH, _crvBalance);
+        }
 
-        // deposit our ETH to the pool
-        uint256 ethBalance = address(this).balance;
-        if (ethBalance > 0) {
-            curve.add_liquidity{value: ethBalance}([ethBalance, 0], 0);
+        // sell weth to usdc, maybe skip this step
+        uint256 wethBalance = weth.balanceOf(address(this));
+        if (wethBalance > 1e14) {
+            _sellTokenToTokenUniV3(address(weth), address(usdc), feeETHUSDC, _crvBalance);
+        }
+
+        // deposit our usdc to the pool
+        uint256 usdcBalance = usdc.balanceOf(address(this));
+        if (usdcBalance > 0) {
+            // curve.add_liquidity([ethBalance, 0], 0);
+            curve.add_liquidity([0, 0, usdcBalance, 0], 0);
         }
 
         // debtOustanding will only be > 0 in the event of revoking or if we need to rebalance from a withdrawal or lowering the debtRatio
@@ -341,25 +357,12 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
         crv.safeTransfer(_newStrategy, crv.balanceOf(address(this)));
     }
 
-    // Sells our harvested CRV into the selected output, then unwrap WETH
-    function _sell(uint256 _crvAmount) internal {
-        if (_crvAmount > 1e17) {
-            // don't want to swap dust or we might revert
-            _sellTokenToWethUniV3(address(crv), feeCRVETH, _crvAmount);
-        }
-
-        uint256 wethBalance = weth.balanceOf(address(this));
-        if (wethBalance > 0) {
-            IWeth(address(weth)).withdraw(wethBalance);
-        }
-    }
-
     // Sells our harvested reward token into the selected output.
-    function _sellTokenToWethUniV3(address _tokenIn, uint24 _fee, uint256 _amount) internal {
+    function _sellTokenToTokenUniV3(address _tokenIn, address _tokenOut, uint24 _fee, uint256 _amount) internal {
         IUniswapV3Router01(uniswap).exactInputSingle(
             IUniswapV3Router01.ExactInputSingleParams(
-                address(_tokenIn),
-                address(weth),
+                _tokenIn,
+                _tokenOut,
                 _fee,
                 address(this),
                 block.timestamp,
@@ -422,7 +425,7 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
     {}
 
     // include so our contract plays nicely with ether
-    receive() external payable {}
+    // receive() external payable {}
 
     /* ========== SETTERS ========== */
 

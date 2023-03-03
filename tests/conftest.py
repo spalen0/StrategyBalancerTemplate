@@ -39,7 +39,7 @@ def tests_using_tenderly():
 def whale(accounts):
     # Totally in it for the tech
     # Update this with a large holder of your want token (the largest EOA holder of LP)
-    whale = accounts.at("0xcb8883d1d8c560003489df43b30612aabb8013bb", force=True)
+    whale = accounts.at("0xc5ae4b5f86332e70f3205a8151ee9ed9f71e0797", force=True)
     yield whale
 
 
@@ -53,7 +53,7 @@ def amount():
 # this is the name we want to give our strategy
 @pytest.fixture(scope="module")
 def strategy_name():
-    strategy_name = "StrategyCurvesETH"
+    strategy_name = "StrategyCurvesUSD"
     yield strategy_name
 
 
@@ -90,7 +90,7 @@ def healthCheck():
 @pytest.fixture(scope="module")
 def token():
     # this should be the address of the ERC-20 used by the strategy/vault
-    token_address = "0x7Bc5728BC2b59B45a58d9A576E2Ffc5f0505B35E"
+    token_address = "0x061b87122ed14b9526a813209c8a59a633257bab"
     yield Contract(token_address)
 
 
@@ -105,14 +105,14 @@ def zero_address():
 @pytest.fixture(scope="module")
 def gauge():
     # this should be the address of the convex deposit token
-    gauge = "0xCB8883D1D8c560003489Df43B30612AAbB8013bb"
+    gauge = "0xc5ae4b5f86332e70f3205a8151ee9ed9f71e0797"
     yield Contract(gauge)
 
 
 # curve deposit pool
 @pytest.fixture(scope="module")
 def pool():
-    poolAddress = Contract("0x7Bc5728BC2b59B45a58d9A576E2Ffc5f0505B35E")
+    poolAddress = Contract("0x061b87122ed14b9526a813209c8a59a633257bab")
     yield poolAddress
 
 @pytest.fixture(scope="session")
@@ -251,6 +251,7 @@ def strategy(
         strategy.updateRewards(has_rewards, rewards_token, {"from": gov})
         strategy.setFeeCRVETH(3000, {"from": gov})
         strategy.setFeeOPETH(3000, {"from": gov})
+        strategy.setFeeETHUSDC(500, {"from": gov})
     # set our management fee to zero so it doesn't mess with our profit checking
     vault.setManagementFee(0, {"from": gov})
     # add our new strategy
