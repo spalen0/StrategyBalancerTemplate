@@ -234,6 +234,11 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
         creditThreshold = 500 * 1e18;
         keepCRV = 0; // default of 0%
 
+        // set uniswap v3 fees
+        feeCRVETH = 3000;
+        feeOPETH = 3000;
+        feeETHUSDC = 500;
+
         // these are our standard approvals. want = Curve LP token
         want.approve(address(_gauge), type(uint256).max);
         crv.approve(address(uniswap), type(uint256).max);
