@@ -250,7 +250,7 @@ def strategy(
     if has_rewards:
         strategy.updateRewards(has_rewards, rewards_token, {"from": gov})
         strategy.setFeeCRVETH(3000, {"from": gov})
-        strategy.setFeeOPETH(3000, {"from": gov})
+        strategy.setFeeOPETH(500, {"from": gov})
         strategy.setFeeETHSUSD(500, {"from": gov})
     # set our management fee to zero so it doesn't mess with our profit checking
     vault.setManagementFee(0, {"from": gov})

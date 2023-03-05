@@ -314,7 +314,6 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
         // deposit our sUsdc to the pool
         uint256 sUsdcBalance = sUsdc.balanceOf(address(this));
         if (sUsdcBalance > 0) {
-            // curve.add_liquidity([ethBalance, 0], 0);
             curve.add_liquidity([sUsdcBalance, 0], 0);
         }
 

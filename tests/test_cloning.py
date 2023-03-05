@@ -92,7 +92,7 @@ def test_cloning(
     vault.addStrategy(newStrategy, currentDebt, 0, 2 ** 256 - 1, 1_000, {"from": gov})
     newStrategy.updateRewards(has_rewards, rewards_token, {"from": gov})
     newStrategy.setFeeCRVETH(3000, {"from": gov})
-    newStrategy.setFeeOPETH(3000, {"from": gov})
+    newStrategy.setFeeOPETH(500, {"from": gov})
     newStrategy.setFeeETHSUSD(500, {"from": gov})
 
     if vault.address == ZERO_ADDRESS:
