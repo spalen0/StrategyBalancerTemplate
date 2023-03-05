@@ -139,7 +139,7 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
     ICurveFi public curve; ///@notice This is our curve pool specific to this vault
     uint24 public feeCRVETH;
     uint24 public feeOPETH;
-    uint24 public feeETHUSDC;
+    uint24 public feeETHSUSD;
 
     // rewards token info. we can have more than 1 reward token but this is rare, so we don't include this in the template
     IERC20 public rewardsToken;
@@ -237,7 +237,7 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
         // set uniswap v3 fees
         feeCRVETH = 3000;
         feeOPETH = 500;
-        feeETHUSDC = 500;
+        feeETHSUSD = 500;
 
         // these are our standard approvals. want = Curve LP token
         want.approve(address(_gauge), type(uint256).max);
@@ -265,8 +265,8 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
         feeOPETH = _newFeeOPETH;
     }
 
-    function setFeeETHUSDC(uint24 _newFeeETHUSDC) external onlyVaultManagers {
-        feeETHUSDC = _newFeeETHUSDC;
+    function setFeeETHSUSD(uint24 _newFeeETHSUSD) external onlyVaultManagers {
+        feeETHSUSD = _newFeeETHSUSD;
     }
 
     function prepareReturn(uint256 _debtOutstanding)
@@ -302,19 +302,13 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
             gauge.claim_rewards();
             uint256 _rewardsBalance = rewardsToken.balanceOf(address(this));
             if (_rewardsBalance > 0) {
-                _sellTokenToTokenUniV3(address(rewardsToken), address(weth), feeOPETH, _rewardsBalance);
+                _sellTokenToSusdUniV3(address(rewardsToken), feeOPETH, _rewardsBalance);
             }
         }
 
         if (_crvBalance > 1e17) {
             // don't want to swap dust or we might revert
-            _sellTokenToTokenUniV3(address(crv), address(weth), feeCRVETH, _crvBalance);
-        }
-
-        // sell weth to sUsdc, maybe skip this step
-        uint256 wethBalance = weth.balanceOf(address(this));
-        if (wethBalance > 1e14) {
-            _sellTokenToTokenUniV3(address(weth), address(sUsdc), feeETHUSDC, wethBalance);
+            _sellTokenToSusdUniV3(address(crv), feeCRVETH, _crvBalance);
         }
 
         // deposit our sUsdc to the pool
@@ -365,16 +359,13 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
     }
 
     // Sells our harvested reward token into the selected output.
-    function _sellTokenToTokenUniV3(address _tokenIn, address _tokenOut, uint24 _fee, uint256 _amount) internal {
-        IUniswapV3Router01(uniswap).exactInputSingle(
-            IUniswapV3Router01.ExactInputSingleParams(
-                _tokenIn,
-                _tokenOut,
-                _fee,
+    function _sellTokenToSusdUniV3(address _tokenIn,uint24 _fee, uint256 _amount) internal {
+        IUniswapV3Router01(uniswap).exactInput(
+            IUniswapV3Router01.ExactInputParams(
+                abi.encodePacked(_tokenIn, _fee, address(weth), feeETHSUSD, address(sUsdc)),
                 address(this),
                 block.timestamp,
                 _amount,
-                0,
                 0
             )
         );

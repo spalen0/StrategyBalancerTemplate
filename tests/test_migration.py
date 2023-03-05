@@ -41,7 +41,7 @@ def test_migration(
     strategy.updateRewards(True, rewards_token, {"from": gov})
     strategy.setFeeCRVETH(3000, {"from": gov})
     strategy.setFeeOPETH(3000, {"from": gov})
-    strategy.setFeeETHUSDC(500, {"from": gov})
+    strategy.setFeeETHSUSD(500, {"from": gov})
     total_old = strategy.estimatedTotalAssets()
 
     # can we harvest an unactivated strategy? should be no
