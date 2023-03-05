@@ -236,7 +236,7 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
 
         // set uniswap v3 fees
         feeCRVETH = 3000;
-        feeOPETH = 3000;
+        feeOPETH = 500;
         feeETHUSDC = 500;
 
         // these are our standard approvals. want = Curve LP token
