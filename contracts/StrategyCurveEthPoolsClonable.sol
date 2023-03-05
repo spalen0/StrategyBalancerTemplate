@@ -422,9 +422,6 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
         returns (uint256)
     {}
 
-    // include so our contract plays nicely with ether
-    // receive() external payable {}
-
     /* ========== SETTERS ========== */
 
     // These functions are useful for setting parameters of the strategy that may need to be adjusted.
