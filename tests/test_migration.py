@@ -5,7 +5,7 @@ import math
 
 
 def test_migration(
-    StrategyCurveEthPoolsClonable,
+    StrategyCurve3PoolClonable,
     gov,
     token,
     vault,
@@ -32,7 +32,7 @@ def test_migration(
 
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurveEthPoolsClonable,
+        StrategyCurve3PoolClonable,
         vault,
         gauge,
         pool,
@@ -41,7 +41,7 @@ def test_migration(
     strategy.updateRewards(True, rewards_token, {"from": gov})
     strategy.setFeeCRVETH(3000, {"from": gov})
     strategy.setFeeOPETH(500, {"from": gov})
-    strategy.setFeeETHSUSD(500, {"from": gov})
+    strategy.setFeeETHUSD(500, {"from": gov})
     total_old = strategy.estimatedTotalAssets()
 
     # can we harvest an unactivated strategy? should be no

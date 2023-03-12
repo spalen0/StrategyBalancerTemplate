@@ -17,6 +17,7 @@ def test_simple_harvest(
     voter,
     amount,
 ):
+    strategy.setOptimalStable(2, {"from": gov})
     ## deposit to the vault after approving
     startingWhale = token.balanceOf(whale)
     token.approve(vault, 2 ** 256 - 1, {"from": whale})

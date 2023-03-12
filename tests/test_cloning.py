@@ -93,7 +93,7 @@ def test_cloning(
     newStrategy.updateRewards(has_rewards, rewards_token, {"from": gov})
     newStrategy.setFeeCRVETH(3000, {"from": gov})
     newStrategy.setFeeOPETH(500, {"from": gov})
-    newStrategy.setFeeETHSUSD(500, {"from": gov})
+    newStrategy.setFeeETHUSD(500, {"from": gov})
 
     if vault.address == ZERO_ADDRESS:
         assert vault.withdrawalQueue(1) == newStrategy

@@ -31,13 +31,20 @@ abstract contract StrategyCurveBase is BaseStrategy {
     address internal constant uniswap =
         0xE592427A0AEce92De3Edee1F18E0157C05861564; // we use this to sell our bonus token
 
-    IERC20 internal constant sUsdc =
+    IERC20 internal constant sUsd =
         IERC20(0x8c6f28f2F1A3C87F0f938b96d27520d9751ec8d9);
     IERC20 internal constant crv =
         IERC20(0x0994206dfE8De6Ec6920FF4D779B0d950605Fb53);
     IERC20 internal constant weth =
         IERC20(0x4200000000000000000000000000000000000006);
+    IERC20 internal constant dai =
+        IERC20(0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1);
+    IERC20 internal constant usdc =
+        IERC20(0x7F5c764cBc14f9669B88837ca1490cCa17c31607);
+    IERC20 internal constant usdt =
+        IERC20(0x94b008aA00579c1307B0EF2c499aD98a8ce58e58);
     IMinter public constant mintr = IMinter(0xabC000d88f23Bb45525E447528DBF656A9D55bf5);
+    address internal constant pool3 = 0x1337BedC9D22ecbe766dF105c9623922A27963EC;
 
     string internal stratName;
 
@@ -130,7 +137,7 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
 }
 
-contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
+contract StrategyCurve3PoolClonable is StrategyCurveBase {
     using SafeERC20 for IERC20;
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
@@ -139,7 +146,8 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
     ICurveFi public curve; ///@notice This is our curve pool specific to this vault
     uint24 public feeCRVETH;
     uint24 public feeOPETH;
-    uint24 public feeETHSUSD;
+    uint24 public feeETHUSD;
+    address public targetStable;
 
     // rewards token info. we can have more than 1 reward token but this is rare, so we don't include this in the template
     IERC20 public rewardsToken;
@@ -191,7 +199,7 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
             newStrategy := create(0, clone_code, 0x37)
         }
 
-        StrategyCurveEthPoolsClonable(newStrategy).initialize(
+        StrategyCurve3PoolClonable(newStrategy).initialize(
             _vault,
             _strategist,
             _rewards,
@@ -237,22 +245,30 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
         // set uniswap v3 fees
         feeCRVETH = 3000;
         feeOPETH = 500;
-        feeETHSUSD = 500;
+        feeETHUSD = 500;
 
         // these are our standard approvals. want = Curve LP token
         want.approve(address(_gauge), type(uint256).max);
         crv.approve(address(uniswap), type(uint256).max);
         weth.approve(address(uniswap), type(uint256).max);
 
+        dai.approve(pool3, type(uint256).max);
+        usdt.safeApprove(pool3, type(uint256).max);
+        usdc.approve(pool3, type(uint256).max);
+
         // this is the pool specific to this vault
         curve = ICurveFi(_curvePool);
-        sUsdc.approve(_curvePool, type(uint256).max);
+        sUsd.approve(_curvePool, type(uint256).max);
+        IERC20(pool3).approve(_curvePool, type(uint256).max);
 
         // set our curve gauge contract
         gauge = IGauge(_gauge);
 
         // set our strategy's name
         stratName = _name;
+
+        // set strategy default traget stable
+        targetStable = address(usdt);
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
@@ -265,8 +281,23 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
         feeOPETH = _newFeeOPETH;
     }
 
-    function setFeeETHSUSD(uint24 _newFeeETHSUSD) external onlyVaultManagers {
-        feeETHSUSD = _newFeeETHSUSD;
+    function setFeeETHUSD(uint24 _newFeeETHUSD) external onlyVaultManagers {
+        feeETHUSD = _newFeeETHUSD;
+    }
+
+    ///@notice Set optimal token to sell harvested funds for depositing to Curve.
+    function setOptimalStable(uint256 _optimal) external onlyVaultManagers {
+        if (_optimal == 0) {
+            targetStable = address(dai);
+        } else if (_optimal == 1) {
+            targetStable = address(usdc);
+        } else if (_optimal == 2) {
+            targetStable = address(usdt);
+        } else if (_optimal == 3) {
+            targetStable = address(sUsd);
+        } else {
+            revert("incorrect token");
+        }
     }
 
     function prepareReturn(uint256 _debtOutstanding)
@@ -302,19 +333,36 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
             gauge.claim_rewards();
             uint256 _rewardsBalance = rewardsToken.balanceOf(address(this));
             if (_rewardsBalance > 0) {
-                _sellTokenToSusdUniV3(address(rewardsToken), feeOPETH, _rewardsBalance);
+                _sellTokenToStableUniV3(address(rewardsToken), feeOPETH, _rewardsBalance);
             }
         }
 
         if (_crvBalance > 1e17) {
             // don't want to swap dust or we might revert
-            _sellTokenToSusdUniV3(address(crv), feeCRVETH, _crvBalance);
+            _sellTokenToStableUniV3(address(crv), feeCRVETH, _crvBalance);
         }
 
-        // deposit our sUsdc to the pool
-        uint256 sUsdcBalance = sUsdc.balanceOf(address(this));
-        if (sUsdcBalance > 0) {
-            curve.add_liquidity([sUsdcBalance, 0], 0);
+        if (targetStable != address(sUsd)) {
+            // check for balances of tokens to deposit
+            uint256 _daiBalance = dai.balanceOf(address(this));
+            uint256 _usdcBalance = usdc.balanceOf(address(this));
+            uint256 _usdtBalance = usdt.balanceOf(address(this));
+            // deposit our balance to Curve if we have any
+            if (_daiBalance > 0 || _usdcBalance > 0 || _usdtBalance > 0) {
+                ICurveFi(pool3).add_liquidity(
+                    [_daiBalance, _usdcBalance, _usdtBalance],
+                    0
+                );
+            }
+            uint256 pool3Balance = IERC20(pool3).balanceOf(address(this));
+            if (pool3Balance > 0) {
+                curve.add_liquidity([0, pool3Balance], 0);
+            }
+        } else {
+            uint256 sUsdBalance = sUsd.balanceOf(address(this));
+            if (sUsdBalance > 0) {
+                curve.add_liquidity([sUsdBalance, 0], 0);
+            }
         }
 
         // debtOustanding will only be > 0 in the event of revoking or if we need to rebalance from a withdrawal or lowering the debtRatio
@@ -358,10 +406,10 @@ contract StrategyCurveEthPoolsClonable is StrategyCurveBase {
     }
 
     // Sells our harvested reward token into the selected output.
-    function _sellTokenToSusdUniV3(address _tokenIn,uint24 _fee, uint256 _amount) internal {
+    function _sellTokenToStableUniV3(address _tokenIn,uint24 _fee, uint256 _amount) internal {
         IUniswapV3Router01(uniswap).exactInput(
             IUniswapV3Router01.ExactInputParams(
-                abi.encodePacked(_tokenIn, _fee, address(weth), feeETHSUSD, address(sUsdc)),
+                abi.encodePacked(_tokenIn, _fee, address(weth), feeETHUSD, targetStable),
                 address(this),
                 block.timestamp,
                 _amount,

@@ -47,6 +47,9 @@ def test_setters(
     # strategy.setProfitFactor(1000, {"from": gov})
     strategy.setRewards(gov, {"from": strategist})
 
+    strategy.setOptimalStable(1, {"from": gov})
+    assert strategy.targetStable() == "0x7F5c764cBc14f9669B88837ca1490cCa17c31607"
+
     if is_convex:
         strategy.setKeep(10, 0, gov, {"from": gov})
         strategy.setClaimRewards(True, {"from": gov})
@@ -87,6 +90,10 @@ def test_setters(
         strategy.setMaxReportDelay(1000, {"from": whale})
     with brownie.reverts():
         strategy.setRewards(strategist, {"from": whale})
+    with brownie.reverts():
+        strategy.setOptimalStable(1, {"from": whale})
+    with brownie.reverts():
+        strategy.setOptimalStable(99, {"from": whale})
     if is_convex:
         with brownie.reverts():
             strategy.setKeep(10_001, 0, gov, {"from": gov})

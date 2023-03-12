@@ -164,8 +164,8 @@ def strategist(accounts):
     yield accounts.at("0xea3a15df68fCdBE44Fdb0DB675B2b3A14a148b26", force=True)
 
 @pytest.fixture(scope="session")
-def contract_name(StrategyCurveEthPoolsClonable):
-    contract_name = StrategyCurveEthPoolsClonable
+def contract_name(StrategyCurve3PoolClonable):
+    contract_name = StrategyCurve3PoolClonable
     yield contract_name
 
 @pytest.fixture(scope="session")
@@ -222,7 +222,7 @@ def vault(pm, gov, rewards, guardian, management, token, chain):
 # replace the first value with the name of your strategy
 @pytest.fixture(scope="function")
 def strategy(
-    StrategyCurveEthPoolsClonable,
+    StrategyCurve3PoolClonable,
     strategist,
     keeper,
     vault,
@@ -240,7 +240,7 @@ def strategy(
 ):
     # make sure to include all constructor parameters needed here
     strategy = strategist.deploy(
-        StrategyCurveEthPoolsClonable,
+        StrategyCurve3PoolClonable,
         vault,
         gauge,
         pool,
@@ -251,7 +251,7 @@ def strategy(
         strategy.updateRewards(has_rewards, rewards_token, {"from": gov})
         strategy.setFeeCRVETH(3000, {"from": gov})
         strategy.setFeeOPETH(500, {"from": gov})
-        strategy.setFeeETHSUSD(500, {"from": gov})
+        strategy.setFeeETHUSD(500, {"from": gov})
     # set our management fee to zero so it doesn't mess with our profit checking
     vault.setManagementFee(0, {"from": gov})
     # add our new strategy
