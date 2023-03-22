@@ -80,8 +80,8 @@ abstract contract StrategyCurveBase is BaseStrategy {
         }
         // Deposit to the gauge if we have any
         uint256 _toInvest = balanceOfWant();
-        if (_toInvest > 0) {
-            gauge.deposit(_toInvest);
+        if (_toInvest > 0 && _toInvest > _debtOutstanding) {
+            gauge.deposit(_toInvest - _debtOutstanding);
         }
     }
 
@@ -152,6 +152,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
     // rewards token info. we can have more than 1 reward token but this is rare, so we don't include this in the template
     IERC20 public rewardsToken;
     bool public hasRewards;
+    uint256 public minRewardsToSell;
 
     // check for cloning
     bool internal isOriginal = true;
@@ -247,6 +248,9 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         feeOPETH = 500;
         feeETHUSD = 500;
 
+        // define minimal rewards to trigger harvest
+        minRewardsToSell = 1e19;
+
         // these are our standard approvals. want = Curve LP token
         want.approve(address(_gauge), type(uint256).max);
         crv.approve(address(uniswap), type(uint256).max);
@@ -283,6 +287,10 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
 
     function setFeeETHUSD(uint24 _newFeeETHUSD) external onlyVaultManagers {
         feeETHUSD = _newFeeETHUSD;
+    }
+
+    function setMinRewardsToSell(uint256 _minRewardsToSell) external onlyVaultManagers {
+        minRewardsToSell = _minRewardsToSell;
     }
 
     ///@notice Set optimal token to sell harvested funds for depositing to Curve.
@@ -403,6 +411,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
             gauge.withdraw(_stakedBal);
         }
         crv.safeTransfer(_newStrategy, crv.balanceOf(address(this)));
+        rewardsToken.safeTransfer(_newStrategy,rewardsToken.balanceOf(address(this)));
     }
 
     // Sells our harvested reward token into the selected output.
@@ -457,6 +466,10 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
             return true;
         }
 
+        if (rewardsToken.balanceOf(address(this)) > minRewardsToSell) {
+            return true;
+        }
+
         // otherwise, we don't harvest
         return false;
     }
@@ -481,7 +494,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
     {
         // if we already have a rewards token, get rid of it
         if (address(rewardsToken) != address(0)) {
-            rewardsToken.approve(uniswap, uint256(0));
+            rewardsToken.safeApprove(uniswap, uint256(0));
         }
         if (_hasRewards == false) {
             hasRewards = false;
@@ -489,7 +502,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         } else {
             // approve, setup our path, and turn on rewards
             rewardsToken = IERC20(_rewardsToken);
-            rewardsToken.approve(uniswap, type(uint256).max);
+            rewardsToken.safeApprove(uniswap, type(uint256).max);
             hasRewards = true;
         }
     }

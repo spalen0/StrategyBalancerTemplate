@@ -86,4 +86,34 @@ def test_less_useful_triggers(
     print("\nShould we harvest? Should be False.", tx)
     assert tx == False
 
-    chain.sleep(200)
+
+def test_rewards_triggers(
+    gov,
+    token,
+    vault,
+    strategist,
+    whale,
+    strategy,
+    chain,
+    strategist_ms,
+    amount,
+    rewards_token,
+):
+    ## deposit to the vault after approving
+    startingWhale = token.balanceOf(whale)
+    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    vault.deposit(amount, {"from": whale})
+    newWhale = token.balanceOf(whale)
+    starting_assets = vault.totalAssets()
+    chain.sleep(1)
+    strategy.harvest({"from": gov})
+    chain.sleep(1)
+
+    # rewards token is below min amount
+    min_rewards_to_sell = 1e10
+    rewards_token.transfer(strategy, 1e10 + 1, {"from": whale})
+    assert strategy.harvestTrigger(0, {"from": gov}) == False
+
+    # set lower min rewards trigger
+    strategy.setMinRewardsToSell(min_rewards_to_sell, {"from": gov})
+    assert strategy.harvestTrigger(0, {"from": gov}) == True

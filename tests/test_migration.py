@@ -62,6 +62,7 @@ def test_migration(
     # assert that our old strategy is empty
     updated_total_old = strategy.estimatedTotalAssets()
     assert updated_total_old == 0
+    assert rewards_token.balanceOf(strategy) == 0
 
     # harvest to get funds back in strategy
     chain.sleep(1)
