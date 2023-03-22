@@ -93,7 +93,7 @@ def test_setters(
     with brownie.reverts():
         strategy.setOptimalStable(1, {"from": whale})
     with brownie.reverts():
-        strategy.setOptimalStable(99, {"from": whale})
+        strategy.setOptimalStable(99, {"from": gov})
     if is_convex:
         with brownie.reverts():
             strategy.setKeep(10_001, 0, gov, {"from": gov})

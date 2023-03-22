@@ -249,9 +249,9 @@ def strategy(
     strategy.setKeeper(keeper, {"from": gov})
     if has_rewards:
         strategy.updateRewards(has_rewards, rewards_token, {"from": gov})
-        strategy.setFeeCRVETH(3000, {"from": gov})
-        strategy.setFeeOPETH(500, {"from": gov})
-        strategy.setFeeETHUSD(500, {"from": gov})
+        # strategy.setFeeCRVETH(3000, {"from": gov})
+        # strategy.setFeeOPETH(500, {"from": gov})
+        # strategy.setFeeETHUSD(500, {"from": gov})
     # set our management fee to zero so it doesn't mess with our profit checking
     vault.setManagementFee(0, {"from": gov})
     # add our new strategy
@@ -262,3 +262,8 @@ def strategy(
     strategy.harvest({"from": gov})
     chain.sleep(1)
     yield strategy
+
+
+@pytest.fixture(scope="function")
+def swap_route_usdt():
+    yield "0000000000000000000000000994206dfe8de6ec6920ff4d779b0d950605fb530000000000000000000000000000000000000000000000000000000000000bb8000000000000000000000000420000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000001f400000000000000000000000094b008aa00579c1307b0ef2c499ad98a8ce58e58"

@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "./interfaces/curve.sol";
 import "./interfaces/yearn.sol";
-import {IUniswapV3Router01} from "./interfaces/uniswap.sol";
+import {IUniswapV3Router01, IQuoterV2} from "./interfaces/uniswap.sol";
 import "@yearnvaults/contracts/BaseStrategy.sol";
 
 interface IWeth {
@@ -146,9 +146,6 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
 
     // Curve stuff
     ICurveFi public curve; ///@notice This is our curve pool specific to this vault
-    uint24 public feeCRVETH;
-    uint24 public feeOPETH;
-    uint24 public feeETHUSD;
     address public targetStable;
     bytes public crvSwapPath;
 
@@ -274,25 +271,13 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         // set strategy default traget stable
         targetStable = address(usdt);
         // feeCRVETH = 3000, feeETHUSD = 500;
-        crvSwapPath = abi.encodePacked(address(crv), 3000, address(weth), 500, targetStable);
+        crvSwapPath = abi.encodePacked(address(crv), uint24(3000), address(weth), uint24(500), targetStable);
         // for OP rewards
         // feeOPETH = 500, feeETHUSD = 500;
-        // rewardsSwapPath = abi.encodePacked(address(rewardsToken), 500, address(weth), 500, targetStable);
+        rewardsSwapPath = abi.encodePacked(address(rewardsToken), uint24(500), address(weth), uint24(500), targetStable);
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
-
-    function setFeeCRVETH(uint24 _newFeeCRVETH) external onlyVaultManagers {
-        feeCRVETH = _newFeeCRVETH;
-    }
-
-    function setFeeOPETH(uint24 _newFeeOPETH) external onlyVaultManagers {
-        feeOPETH = _newFeeOPETH;
-    }
-
-    function setFeeETHUSD(uint24 _newFeeETHUSD) external onlyVaultManagers {
-        feeETHUSD = _newFeeETHUSD;
-    }
 
     ///@notice Set optimal token to sell harvested funds for depositing to Curve.
     function setOptimalStable(uint256 _optimal, bytes calldata _crvSwapPath) external onlyVaultManagers {
@@ -308,6 +293,10 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
             revert("incorrect token");
         }
         crvSwapPath = _crvSwapPath;
+    }
+
+    function setRewardsSwapPath(bytes calldata _rewardsSwapPath) external onlyVaultManagers {
+        rewardsSwapPath = _rewardsSwapPath;
     }
 
     function prepareReturn(uint256 _debtOutstanding)
@@ -343,13 +332,13 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
             gauge.claim_rewards();
             uint256 _rewardsBalance = rewardsToken.balanceOf(address(this));
             if (_rewardsBalance > 0) {
-                _sellTokenToStableUniV3(address(rewardsToken), feeOPETH, _rewardsBalance);
+                sellPathToUniV3(rewardsSwapPath, _rewardsBalance);
             }
         }
 
         if (_crvBalance > 1e17) {
             // don't want to swap dust or we might revert
-            _sellTokenToStableUniV3(address(crv), feeCRVETH, _crvBalance);
+            sellPathToUniV3(crvSwapPath, _crvBalance);
         }
 
         if (targetStable != address(sUsd)) {
@@ -417,7 +406,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
     }
 
     // Sells our harvested reward token into the selected output.
-    function sellPathToUniV3(address path, uint256 _amount) internal {
+    function sellPathToUniV3(bytes memory path, uint256 amount) internal {
         // TODO maybe set slippage as config param
         uint256 minAmount = priceCheck(path, amount) * 995 / 1000;
         IUniswapV3Router01(uniswap).exactInput(
@@ -425,19 +414,17 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
                 path,
                 address(this),
                 block.timestamp,
-                _amount,
+                amount,
                 minAmount
             )
         );
     }
 
-    function priceCheck(bytes path, uint256 amount) public view returns (uint256) {
+    function priceCheck(bytes memory path, uint256 amount) internal returns (uint256 amountOut) {
         if (amount == 0) {
             return 0;
         }
-        IQuoterV2.QuoteExactInputSingleParams quote = 
-            IQuoterV2(uniswapQuoter).quoteExactInput(path, amount);
-        return quote.amountOut; // TODO: check if we need addinional math
+        (amountOut, , , ) = IQuoterV2(uniswapQuoter).quoteExactInput(path, amount);
     }
 
     /* ========== KEEP3RS ========== */
