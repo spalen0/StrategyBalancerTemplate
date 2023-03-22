@@ -28,8 +28,10 @@ abstract contract StrategyCurveBase is BaseStrategy {
     uint256 internal constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in basis points
 
     // Swap stuff
-    address internal constant uniswap =
+    address internal constant uniswap = // v02: 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45
         0xE592427A0AEce92De3Edee1F18E0157C05861564; // we use this to sell our bonus token
+    address internal constant uniswapQuoter =
+        0x61fFE014bA17989E743c5F6cB21bF9697530B21e;
 
     IERC20 internal constant sUsd =
         IERC20(0x8c6f28f2F1A3C87F0f938b96d27520d9751ec8d9);
@@ -80,8 +82,8 @@ abstract contract StrategyCurveBase is BaseStrategy {
         }
         // Deposit to the gauge if we have any
         uint256 _toInvest = balanceOfWant();
-        if (_toInvest > 0) {
-            gauge.deposit(_toInvest);
+        if (_toInvest > 0 && _toInvest > _debtOutstanding) {
+            gauge.deposit(_toInvest - _debtOutstanding);
         }
     }
 
@@ -148,10 +150,12 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
     uint24 public feeOPETH;
     uint24 public feeETHUSD;
     address public targetStable;
+    bytes public crvSwapPath;
 
     // rewards token info. we can have more than 1 reward token but this is rare, so we don't include this in the template
     IERC20 public rewardsToken;
     bool public hasRewards;
+    bytes public rewardsSwapPath;
 
     // check for cloning
     bool internal isOriginal = true;
@@ -243,9 +247,9 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         keepCRV = 0; // default of 0%
 
         // set uniswap v3 fees
-        feeCRVETH = 3000;
-        feeOPETH = 500;
-        feeETHUSD = 500;
+        // feeCRVETH = 3000;
+        // feeOPETH = 500;
+        // feeETHUSD = 500;
 
         // these are our standard approvals. want = Curve LP token
         want.approve(address(_gauge), type(uint256).max);
@@ -269,6 +273,11 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
 
         // set strategy default traget stable
         targetStable = address(usdt);
+        // feeCRVETH = 3000, feeETHUSD = 500;
+        crvSwapPath = abi.encodePacked(address(crv), 3000, address(weth), 500, targetStable);
+        // for OP rewards
+        // feeOPETH = 500, feeETHUSD = 500;
+        // rewardsSwapPath = abi.encodePacked(address(rewardsToken), 500, address(weth), 500, targetStable);
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
@@ -286,7 +295,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
     }
 
     ///@notice Set optimal token to sell harvested funds for depositing to Curve.
-    function setOptimalStable(uint256 _optimal) external onlyVaultManagers {
+    function setOptimalStable(uint256 _optimal, bytes calldata _crvSwapPath) external onlyVaultManagers {
         if (_optimal == 0) {
             targetStable = address(dai);
         } else if (_optimal == 1) {
@@ -298,6 +307,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         } else {
             revert("incorrect token");
         }
+        crvSwapPath = _crvSwapPath;
     }
 
     function prepareReturn(uint256 _debtOutstanding)
@@ -403,19 +413,31 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
             gauge.withdraw(_stakedBal);
         }
         crv.safeTransfer(_newStrategy, crv.balanceOf(address(this)));
+        rewardsToken.safeTransfer(_newStrategy,rewardsToken.balanceOf(address(this)));
     }
 
     // Sells our harvested reward token into the selected output.
-    function _sellTokenToStableUniV3(address _tokenIn,uint24 _fee, uint256 _amount) internal {
+    function sellPathToUniV3(address path, uint256 _amount) internal {
+        // TODO maybe set slippage as config param
+        uint256 minAmount = priceCheck(path, amount) * 995 / 1000;
         IUniswapV3Router01(uniswap).exactInput(
             IUniswapV3Router01.ExactInputParams(
-                abi.encodePacked(_tokenIn, _fee, address(weth), feeETHUSD, targetStable),
+                path,
                 address(this),
                 block.timestamp,
                 _amount,
-                0
+                minAmount
             )
         );
+    }
+
+    function priceCheck(bytes path, uint256 amount) public view returns (uint256) {
+        if (amount == 0) {
+            return 0;
+        }
+        IQuoterV2.QuoteExactInputSingleParams quote = 
+            IQuoterV2(uniswapQuoter).quoteExactInput(path, amount);
+        return quote.amountOut; // TODO: check if we need addinional math
     }
 
     /* ========== KEEP3RS ========== */
@@ -481,7 +503,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
     {
         // if we already have a rewards token, get rid of it
         if (address(rewardsToken) != address(0)) {
-            rewardsToken.approve(uniswap, uint256(0));
+            rewardsToken.safeApprove(uniswap, uint256(0));
         }
         if (_hasRewards == false) {
             hasRewards = false;
@@ -489,7 +511,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         } else {
             // approve, setup our path, and turn on rewards
             rewardsToken = IERC20(_rewardsToken);
-            rewardsToken.approve(uniswap, type(uint256).max);
+            rewardsToken.safeApprove(uniswap, type(uint256).max);
             hasRewards = true;
         }
     }
