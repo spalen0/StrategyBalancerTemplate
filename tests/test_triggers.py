@@ -14,6 +14,7 @@ def test_triggers(
     chain,
     strategist_ms,
     amount,
+    rewards_oracle,
 ):
     ## deposit to the vault after approving
     startingWhale = token.balanceOf(whale)
@@ -28,6 +29,9 @@ def test_triggers(
     # simulate a day of earnings
     chain.sleep(86400)
     chain.mine(1)
+
+    # set too high rewards to trigger harvest
+    strategy.setRewardsData(1e30, 1000, {"from": gov})
 
     # harvest should trigger false; hasn't been long enough
     tx = strategy.harvestTrigger(0, {"from": gov})
@@ -98,6 +102,7 @@ def test_rewards_triggers(
     strategist_ms,
     amount,
     rewards_token,
+    rewards_oracle,
 ):
     ## deposit to the vault after approving
     startingWhale = token.balanceOf(whale)
@@ -109,11 +114,11 @@ def test_rewards_triggers(
     strategy.harvest({"from": gov})
     chain.sleep(1)
 
-    # rewards token is below min amount
-    min_rewards_to_sell = 1e10
-    rewards_token.transfer(strategy, 1e10 + 1, {"from": whale})
+    # rewards token is below min amount        # simulate a day of earnings
+    chain.sleep(86400)
+    chain.mine(1)
     assert strategy.harvestTrigger(0, {"from": gov}) == False
 
     # set lower min rewards trigger
-    strategy.setMinRewardsToSell(min_rewards_to_sell, {"from": gov})
+    strategy.setRewardsData(1, 1, {"from": gov})
     assert strategy.harvestTrigger(0, {"from": gov}) == True

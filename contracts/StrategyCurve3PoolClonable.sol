@@ -8,10 +8,15 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/curve.sol";
 import "./interfaces/yearn.sol";
 import {IUniswapV3Router01} from "./interfaces/uniswap.sol";
+import {AggregatorV3Interface} from "./interfaces/chainlink.sol";
 import "@yearnvaults/contracts/BaseStrategy.sol";
 
 interface IWeth {
     function withdraw(uint256 wad) external;
+}
+
+interface IERC20Metadata is IERC20 {
+    function decimals() external view returns (uint8);
 }
 
 abstract contract StrategyCurveBase is BaseStrategy {
@@ -28,8 +33,8 @@ abstract contract StrategyCurveBase is BaseStrategy {
     uint256 internal constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in basis points
 
     // Swap stuff
-    address internal constant uniswap =
-        0xE592427A0AEce92De3Edee1F18E0157C05861564; // we use this to sell our bonus token
+    IUniswapV3Router01 internal constant uniswap =
+        IUniswapV3Router01(0xE592427A0AEce92De3Edee1F18E0157C05861564); // we use this to sell our bonus token
 
     IERC20 internal constant sUsd =
         IERC20(0x8c6f28f2F1A3C87F0f938b96d27520d9751ec8d9);
@@ -152,7 +157,10 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
     // rewards token info. we can have more than 1 reward token but this is rare, so we don't include this in the template
     IERC20 public rewardsToken;
     bool public hasRewards;
-    uint256 public minRewardsToSell;
+    uint256 public minRewardsUsdToTrigger;
+    uint256 public maxSwapSlippage;
+    address public rewardsOracle;
+    address public crvOracle;
 
     // check for cloning
     bool internal isOriginal = true;
@@ -248,8 +256,11 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         feeOPETH = 500;
         feeETHUSD = 500;
 
-        // define minimal rewards to trigger harvest
-        minRewardsToSell = 1e19;
+        // define minimal rewards to trigger harvest in dollars in BPS
+        minRewardsUsdToTrigger = 50 * FEE_DENOMINATOR;
+        rewardsOracle = 0x0D276FC14719f9292D5C1eA2198673d1f4269246;
+        crvOracle = 0xbD92C6c284271c227a1e0bF1786F468b539f51D9;
+        maxSwapSlippage = 1000;
 
         // these are our standard approvals. want = Curve LP token
         want.approve(address(_gauge), type(uint256).max);
@@ -289,8 +300,21 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         feeETHUSD = _newFeeETHUSD;
     }
 
-    function setMinRewardsToSell(uint256 _minRewardsToSell) external onlyVaultManagers {
-        minRewardsToSell = _minRewardsToSell;
+    ///@notice Set minimal rewards to trigger harvest in dollars in BPS.
+    ///@param _minRewardsUsdToTrigger Minimal rewards to trigger harvest in dollars in BPS.
+    ///@param _maxSwapSlippage Max slippage to swap token in BPS.
+    function setRewardsData(uint256 _minRewardsUsdToTrigger, uint256 _maxSwapSlippage) external onlyVaultManagers {
+        minRewardsUsdToTrigger = _minRewardsUsdToTrigger;
+        require(_maxSwapSlippage < FEE_DENOMINATOR, "Invalid slippage");
+        maxSwapSlippage = _maxSwapSlippage;
+    }
+
+    ///@notice Set chainlink price oracles
+    ///@param _rewardsOracle Address of chainlink oracle for rewards token in dollars.
+    ///@param _crvOracle Address of chainlink oracle for crv token in dollars.
+    function setPriceOracles(address _rewardsOracle, address _crvOracle) external onlyVaultManagers {
+        rewardsOracle = _rewardsOracle;
+        crvOracle = _crvOracle;
     }
 
     ///@notice Set optimal token to sell harvested funds for depositing to Curve.
@@ -341,13 +365,13 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
             gauge.claim_rewards();
             uint256 _rewardsBalance = rewardsToken.balanceOf(address(this));
             if (_rewardsBalance > 0) {
-                _sellTokenToStableUniV3(address(rewardsToken), feeOPETH, _rewardsBalance);
+                _sellTokenToStableUniV3(address(rewardsToken), feeOPETH, _rewardsBalance, rewardsOracle);
             }
         }
 
         if (_crvBalance > 1e17) {
             // don't want to swap dust or we might revert
-            _sellTokenToStableUniV3(address(crv), feeCRVETH, _crvBalance);
+            _sellTokenToStableUniV3(address(crv), feeCRVETH, _crvBalance, crvOracle);
         }
 
         if (targetStable != address(sUsd)) {
@@ -411,18 +435,28 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
             gauge.withdraw(_stakedBal);
         }
         crv.safeTransfer(_newStrategy, crv.balanceOf(address(this)));
-        rewardsToken.safeTransfer(_newStrategy,rewardsToken.balanceOf(address(this)));
+        if (address(rewardsToken) != address(0)) {
+            rewardsToken.safeTransfer(_newStrategy, rewardsToken.balanceOf(address(this)));
+        }
     }
 
     // Sells our harvested reward token into the selected output.
-    function _sellTokenToStableUniV3(address _tokenIn,uint24 _fee, uint256 _amount) internal {
-        IUniswapV3Router01(uniswap).exactInput(
+    function _sellTokenToStableUniV3(address _tokenIn,uint24 _fee, uint256 _amount, address priceOracle) internal {
+        uint256 minAmountOut = 0;
+        if (priceOracle != address(0)) {
+            // amountInUsd * (1 - slippage)%
+            minAmountOut = getTokenInUsd(priceOracle, _tokenIn, _amount) * (FEE_DENOMINATOR - maxSwapSlippage) / FEE_DENOMINATOR;
+            // convert to target decimals
+            minAmountOut *= 10 ** IERC20Metadata(targetStable).decimals() / FEE_DENOMINATOR;
+        }
+
+        uniswap.exactInput(
             IUniswapV3Router01.ExactInputParams(
                 abi.encodePacked(_tokenIn, _fee, address(weth), feeETHUSD, targetStable),
                 address(this),
                 block.timestamp,
                 _amount,
-                0
+                minAmountOut
             )
         );
     }
@@ -466,12 +500,26 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
             return true;
         }
 
-        if (rewardsToken.balanceOf(address(this)) > minRewardsToSell) {
+        uint256 rewards = gauge.claimable_reward(address(this), address(rewardsToken)) -
+            gauge.claimed_reward(address(this), address(rewardsToken));
+        if (getTokenInUsd(rewardsOracle, address(rewardsToken), rewards) > minRewardsUsdToTrigger) {
             return true;
         }
 
         // otherwise, we don't harvest
         return false;
+    }
+
+    /// @notice get the price of a token in USD, in BPS
+    function getTokenInUsd(address oracleAddress, address token, uint256 rewards) public view returns (uint256) {
+        if (oracleAddress == address(0)) {
+            return 0;
+        }
+        AggregatorV3Interface oracle = AggregatorV3Interface(oracleAddress);
+        (uint80 roundId, int256 answer, , , uint80 answeredInRound) = oracle.latestRoundData();
+        require(answeredInRound <= roundId, "Invalid chainlink round");
+        require(answer > 0, "Invalid chainlink value");
+        return uint256(answer) * rewards * FEE_DENOMINATOR / 10 ** (oracle.decimals() + IERC20Metadata(token).decimals());
     }
 
     // convert our keeper's eth cost into want, we don't need this anymore since we don't use baseStrategy harvestTrigger
@@ -494,7 +542,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
     {
         // if we already have a rewards token, get rid of it
         if (address(rewardsToken) != address(0)) {
-            rewardsToken.safeApprove(uniswap, uint256(0));
+            rewardsToken.safeApprove(address(uniswap), uint256(0));
         }
         if (_hasRewards == false) {
             hasRewards = false;
@@ -502,7 +550,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         } else {
             // approve, setup our path, and turn on rewards
             rewardsToken = IERC20(_rewardsToken);
-            rewardsToken.safeApprove(uniswap, type(uint256).max);
+            rewardsToken.safeApprove(address(uniswap), type(uint256).max);
             hasRewards = true;
         }
     }

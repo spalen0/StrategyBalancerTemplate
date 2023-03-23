@@ -17,6 +17,11 @@ interface IGauge {
         view
         returns (uint256);
 
+    function claimed_reward(address _addressToCheck, address _rewardToken)
+        external
+        view
+        returns (uint256);
+
     function withdraw(uint256) external;
 }
 

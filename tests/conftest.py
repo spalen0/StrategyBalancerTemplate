@@ -191,8 +191,8 @@ def rewards_template():
     yield rewards_template
 
 @pytest.fixture(scope="session")
-def sushi_router():  # use this to check our allowances
-    yield Contract("0xE592427A0AEce92De3Edee1F18E0157C05861564")
+def rewards_oracle():  # use this to check our allowances
+    yield Contract("0x0D276FC14719f9292D5C1eA2198673d1f4269246")
 
 # # list any existing strategies here
 # @pytest.fixture(scope="module")
@@ -236,7 +236,7 @@ def strategy(
     gauge,
     strategist_ms,
     has_rewards,
-    rewards_token
+    rewards_token,
 ):
     # make sure to include all constructor parameters needed here
     strategy = strategist.deploy(

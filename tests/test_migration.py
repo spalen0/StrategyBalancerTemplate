@@ -1,6 +1,5 @@
 import brownie
-from brownie import Contract
-from brownie import config
+from brownie import Contract, config, ZERO_ADDRESS
 import math
 
 

@@ -1,6 +1,5 @@
 import brownie
-from brownie import Contract
-from brownie import config
+from brownie import Contract, config, ZERO_ADDRESS
 
 # test the setters on our strategy
 def test_setters(
@@ -74,14 +73,12 @@ def test_setters(
     strategy.harvest({"from": gov})
     chain.sleep(86400)
 
-    zero = "0x0000000000000000000000000000000000000000"
-
     with brownie.reverts():
-        strategy.setKeeper(zero, {"from": gov})
+        strategy.setKeeper(ZERO_ADDRESS, {"from": gov})
     with brownie.reverts():
-        strategy.setRewards(zero, {"from": strategist})
+        strategy.setRewards(ZERO_ADDRESS, {"from": strategist})
     with brownie.reverts():
-        strategy.setStrategist(zero, {"from": gov})
+        strategy.setStrategist(ZERO_ADDRESS, {"from": gov})
     with brownie.reverts():
         strategy.setDoHealthCheck(False, {"from": whale})
     with brownie.reverts():
@@ -95,7 +92,9 @@ def test_setters(
     with brownie.reverts():
         strategy.setOptimalStable(99, {"from": gov})
     with brownie.reverts():
-        strategy.setMinRewardsToSell(1, {"from": whale})
+        strategy.setRewardsData(1, 1, {"from": whale})
+    with brownie.reverts():
+        strategy.setPriceOracles(ZERO_ADDRESS, ZERO_ADDRESS, {"from": whale})
     if is_convex:
         with brownie.reverts():
             strategy.setKeep(10_001, 0, gov, {"from": gov})
@@ -106,7 +105,7 @@ def test_setters(
             strategy.setKeepCRV(10_001, {"from": gov})
 
     # try a health check with zero address as health check
-    strategy.setHealthCheck(zero, {"from": gov})
+    strategy.setHealthCheck(ZERO_ADDRESS, {"from": gov})
     strategy.setDoHealthCheck(True, {"from": gov})
     strategy.harvest({"from": gov})
     chain.sleep(86400)
