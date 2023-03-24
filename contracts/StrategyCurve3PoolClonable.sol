@@ -445,7 +445,12 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         uint256 minAmountOut = 0;
         if (priceOracle != address(0)) {
             // amountInUsd * (1 - slippage)%
-            minAmountOut = getTokenInUsd(priceOracle, _tokenIn, _amount) * (FEE_DENOMINATOR - maxSwapSlippage) / FEE_DENOMINATOR;
+            minAmountOut = getTokenInUsd(priceOracle, _tokenIn, _amount)
+                * (FEE_DENOMINATOR - maxSwapSlippage) / FEE_DENOMINATOR;
+            if (minAmountOut == 0) {
+                // if we can't get a price, then don't sell
+                return;
+            }
             // convert to target decimals
             minAmountOut *= 10 ** IERC20Metadata(targetStable).decimals() / FEE_DENOMINATOR;
         }
@@ -500,8 +505,8 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
             return true;
         }
 
-        uint256 rewards = gauge.claimable_reward(address(this), address(rewardsToken)) -
-            gauge.claimed_reward(address(this), address(rewardsToken));
+        uint256 rewards = gauge.claimable_reward(address(this), address(rewardsToken))
+            - gauge.claimed_reward(address(this), address(rewardsToken));
         if (getTokenInUsd(rewardsOracle, address(rewardsToken), rewards) > minRewardsUsdToTrigger) {
             return true;
         }
@@ -517,9 +522,10 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         }
         AggregatorV3Interface oracle = AggregatorV3Interface(oracleAddress);
         (uint80 roundId, int256 answer, , , uint80 answeredInRound) = oracle.latestRoundData();
-        require(answeredInRound <= roundId, "Invalid chainlink round");
-        require(answer > 0, "Invalid chainlink value");
-        return uint256(answer) * rewards * FEE_DENOMINATOR / 10 ** (oracle.decimals() + IERC20Metadata(token).decimals());
+        if (answeredInRound <= roundId && answer > 0) {
+            return uint256(answer) * rewards * FEE_DENOMINATOR
+                / 10 ** (oracle.decimals() + IERC20Metadata(token).decimals());
+        }
     }
 
     // convert our keeper's eth cost into want, we don't need this anymore since we don't use baseStrategy harvestTrigger
