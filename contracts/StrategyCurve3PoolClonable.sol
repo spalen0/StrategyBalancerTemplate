@@ -457,7 +457,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
                 // if we can't get a price, then don't sell
                 return;
             }
-            // convert to target decimals
+            // convert to target decimals and downslace from BPS (fee denominator)
             minAmountOut *= 10 ** IERC20Metadata(targetStable).decimals() / FEE_DENOMINATOR;
         }
 
@@ -548,9 +548,9 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         return false;
     }
 
-    /// @notice get the price of a token in USD, in BPS
+    /// @notice get the price of a token in USD, in BPS (same value as FEE_DENOMINATOR)
     function getTokenInUsd(address oracleAddress, address token, uint256 rewards) public view returns (uint256) {
-        if (oracleAddress == address(0)) {
+        if (oracleAddress == address(0) || rewards == 0) {
             return 0;
         }
         AggregatorV3Interface oracle = AggregatorV3Interface(oracleAddress);
