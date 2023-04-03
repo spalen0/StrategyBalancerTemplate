@@ -401,10 +401,10 @@ contract StrategyClonable is Strategy3CurveBase {
         address _vault,
         address _gauge,
         address _curvePool,
-        string memory _name,
-        address _poolToken
+        address _poolToken,
+        string memory _name
     ) StrategyCurveBase(_vault) {
-        initializeStrat(_gauge, _curvePool, _name, _poolToken);
+        initializeStrat(_gauge, _curvePool, _poolToken, _name);
     }
 
     /* ========== CLONING ========== */
@@ -419,8 +419,8 @@ contract StrategyClonable is Strategy3CurveBase {
         address _keeper,
         address _gauge,
         address _curvePool,
-        string memory _name,
-        address _poolToken
+        address _poolToken,
+        string memory _name
     ) external returns (address payable newStrategy) {
         require(isOriginal);
         // Copied from https://github.com/optionality/clone-factory/blob/master/contracts/CloneFactory.sol
@@ -447,8 +447,8 @@ contract StrategyClonable is Strategy3CurveBase {
             _keeper,
             _gauge,
             _curvePool,
-            _name,
-            _poolToken
+            _poolToken,
+            _name
         );
 
         emit Cloned(newStrategy);
@@ -462,24 +462,24 @@ contract StrategyClonable is Strategy3CurveBase {
         address _keeper,
         address _gauge,
         address _curvePool,
-        string memory _name,
-        address _poolToken
+        address _poolToken,
+        string memory _name
     ) public {
         _initialize(_vault, _strategist, _rewards, _keeper);
-        initializeStrat(_gauge, _curvePool, _name, _poolToken);
+        initializeStrat(_gauge, _curvePool, _poolToken, name);
     }
 
     // this is called by our original strategy, as well as any clones
     function initializeStrat(
         address _gauge,
         address _curvePool,
-        string memory _name,
-        address _poolToken
+        address _poolToken,
+        string memory _name
     ) internal {
         // make sure that we haven't initialized this before
         require(address(curve) == address(0)); // already initialized.
 
-        super.initializeStrat(_gauge, _curvePool, _poolToken, _name);
+        super.initializeStrat(_gauge, _curvePool, _name, _poolToken);
 
         // set uniswap v3 fees
         feeCRVETH = 3000;

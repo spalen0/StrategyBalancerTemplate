@@ -36,8 +36,8 @@ def test_migration(
         vault,
         gauge,
         pool,
-        strategy_name,
         pool_token,
+        strategy_name,
     )
     strategy.updateRewards(rewards_token, {"from": gov})
     strategy.setFeeCRVETH(3000, {"from": gov})

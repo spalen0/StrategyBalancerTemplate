@@ -38,8 +38,8 @@ def test_cloning(
             keeper,
             gauge,
             pool,
-            strategy_name,
             pool_token,
+            strategy_name,
             {"from": gov},
         )
 
@@ -51,8 +51,8 @@ def test_cloning(
         keeper,
         gauge,
         pool,
-        strategy_name,
         pool_token,
+        strategy_name,
         {"from": gov},
     )
     newStrategy = contract_name.at(tx.return_value)
@@ -66,8 +66,8 @@ def test_cloning(
             keeper,
             gauge,
             pool,
-            strategy_name,
             pool_token,
+            strategy_name,
             {"from": gov},
         )
 
@@ -80,8 +80,8 @@ def test_cloning(
             keeper,
             gauge,
             pool,
-            strategy_name,
             pool_token,
+            strategy_name,
             {"from": gov},
         )
 

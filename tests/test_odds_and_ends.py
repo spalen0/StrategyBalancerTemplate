@@ -62,8 +62,8 @@ def test_odds_and_ends(
         vault,
         gauge,
         pool,
-        strategy_name,
         pool_token,
+        strategy_name,
     )
     total_old = strategy.estimatedTotalAssets()
 
@@ -178,8 +178,8 @@ def test_odds_and_ends_migration(
         vault,
         gauge,
         pool,
-        strategy_name,
         pool_token,
+        strategy_name,
     )
     total_old = strategy.estimatedTotalAssets()
 

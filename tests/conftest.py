@@ -53,8 +53,7 @@ def amount():
 # this is the name we want to give our strategy
 @pytest.fixture(scope="module")
 def strategy_name():
-    strategy_name = "StrategyCurvesUSD"
-    yield strategy_name
+    yield "StrategyCurvesUSD"
 
 
 # Only worry about changing things above this line, unless you want to make changes to the vault or strategy.
@@ -232,8 +231,8 @@ def strategy(
         vault,
         gauge,
         pool,
-        strategy_name,
         pool_token,
+        strategy_name,
     )
     strategy.setKeeper(keeper, {"from": gov})
     if rewards_token != ZERO_ADDRESS:
