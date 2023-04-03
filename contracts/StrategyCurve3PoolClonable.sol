@@ -366,6 +366,7 @@ abstract contract Strategy3CurveBase is StrategyCurveBase {
         }
     }
 
+    /* ========== VIRTUAL FUNCTIONS ========== */
     function sellCrv(uint256 _amount) internal virtual;
 
     function sellRewardToken(uint256 _amount) internal virtual;
@@ -496,8 +497,8 @@ contract StrategyClonable is Strategy3CurveBase {
         weth.approve(address(veloRouter), type(uint256).max);
     }
 
-    /* ========== Implement Virtual functions ========== */
 
+    /* ========== IMPL VIRTUAL FUNCTIONS ========== */
     function sellRewardToken(uint256 _amount) internal override {
         sellTokens(address(rewardsToken), feeOPETH, _amount, rewardsOracle);
     }
@@ -563,20 +564,7 @@ contract StrategyClonable is Strategy3CurveBase {
             > minRewardpoolTokenToTrigger;
     }
 
-    /// @notice get the price of a token in USD, in BPS (same value as FEE_DENOMINATOR)
-    function getTokenInUsd(address oracleAddress, address token, uint256 rewards) public view returns (uint256) {
-        if (oracleAddress == address(0) || rewards == 0) {
-            return 0;
-        }
-        AggregatorV3Interface oracle = AggregatorV3Interface(oracleAddress);
-        (uint80 roundId, int256 answer, , , uint80 answeredInRound) = oracle.latestRoundData();
-        if (answeredInRound <= roundId && answer > 0) {
-            return uint256(answer) * rewards * FEE_DENOMINATOR
-                / 10 ** (oracle.decimals() + IERC20Metadata(token).decimals());
-        }
-    }
-
-    /* ========== Implement Virtual functions ========== */
+    /* ========== SETTER FUNCTIONS ========== */
 
     ///@notice Set chainlink price oracles
     ///@param _rewardsOracle Address of chainlink oracle for rewards token in dollars.
@@ -623,6 +611,19 @@ contract StrategyClonable is Strategy3CurveBase {
             // approve, setup our path, and turn on rewards
             rewardsToken = IERC20(_rewardsToken);
             rewardsToken.safeApprove(address(uniswap), type(uint256).max);
+        }
+    }
+
+    /// @notice get the price of a token in USD, in BPS (same value as FEE_DENOMINATOR)
+    function getTokenInUsd(address oracleAddress, address token, uint256 rewards) internal view returns (uint256) {
+        if (oracleAddress == address(0) || rewards == 0) {
+            return 0;
+        }
+        AggregatorV3Interface oracle = AggregatorV3Interface(oracleAddress);
+        (uint80 roundId, int256 answer, , , uint80 answeredInRound) = oracle.latestRoundData();
+        if (answeredInRound <= roundId && answer > 0) {
+            return uint256(answer) * rewards * FEE_DENOMINATOR
+                / 10 ** (oracle.decimals() + IERC20Metadata(token).decimals());
         }
     }
 }
