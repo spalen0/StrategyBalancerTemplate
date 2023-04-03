@@ -466,7 +466,7 @@ contract StrategyClonable is Strategy3CurveBase {
         string memory _name
     ) public {
         _initialize(_vault, _strategist, _rewards, _keeper);
-        initializeStrat(_gauge, _curvePool, _poolToken, name);
+        initializeStrat(_gauge, _curvePool, _poolToken, _name);
     }
 
     // this is called by our original strategy, as well as any clones
@@ -475,11 +475,11 @@ contract StrategyClonable is Strategy3CurveBase {
         address _curvePool,
         address _poolToken,
         string memory _name
-    ) internal {
+    ) internal override {
         // make sure that we haven't initialized this before
         require(address(curve) == address(0)); // already initialized.
 
-        super.initializeStrat(_gauge, _curvePool, _name, _poolToken);
+        super.initializeStrat(_gauge, _curvePool, _poolToken, _name);
 
         // set uniswap v3 fees
         feeCRVETH = 3000;
