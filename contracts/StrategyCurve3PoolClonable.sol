@@ -9,6 +9,7 @@ import "./interfaces/curve.sol";
 import "./interfaces/yearn.sol";
 import {IUniswapV3Router01} from "./interfaces/uniswap.sol";
 import {AggregatorV3Interface} from "./interfaces/chainlink.sol";
+import "./interfaces/velodrome.sol";
 import "@yearnvaults/contracts/BaseStrategy.sol";
 
 interface IWeth {
@@ -144,6 +145,10 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
 contract StrategyCurve3PoolClonable is StrategyCurveBase {
     using SafeERC20 for IERC20;
+
+    IVelodromeRouter internal constant veloRouter =
+        IVelodromeRouter(0x9c12939390052919aF3155f41Bf4160Fd3666A6f);
+
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
 
@@ -271,6 +276,8 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         usdt.safeApprove(pool3, type(uint256).max);
         usdc.approve(pool3, type(uint256).max);
 
+        weth.approve(address(veloRouter), type(uint256).max);
+
         // this is the pool specific to this vault
         curve = ICurveFi(_curvePool);
         sUsd.approve(_curvePool, type(uint256).max);
@@ -365,13 +372,13 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
             gauge.claim_rewards();
             uint256 _rewardsBalance = rewardsToken.balanceOf(address(this));
             if (_rewardsBalance > 0) {
-                _sellTokenToStableUniV3(address(rewardsToken), feeOPETH, _rewardsBalance, rewardsOracle);
+                sellTokens(address(rewardsToken), feeOPETH, _rewardsBalance, rewardsOracle);
             }
         }
 
         if (_crvBalance > 1e17) {
             // don't want to swap dust or we might revert
-            _sellTokenToStableUniV3(address(crv), feeCRVETH, _crvBalance, crvOracle);
+            sellTokens(address(crv), feeCRVETH, _crvBalance, crvOracle);
         }
 
         if (targetStable != address(sUsd)) {
@@ -440,25 +447,56 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         }
     }
 
-    // Sells our harvested reward token into the selected output.
-    function _sellTokenToStableUniV3(address _tokenIn,uint24 _fee, uint256 _amount, address priceOracle) internal {
+    function sellTokens(address _tokenIn, uint24 _fee, uint256 _amount, address priceOracle) internal {
         uint256 minAmountOut = 0;
         if (priceOracle != address(0)) {
             // amountInUsd * (1 - slippage)%
-            minAmountOut = getTokenInUsd(priceOracle, _tokenIn, _amount) * (FEE_DENOMINATOR - maxSwapSlippage) / FEE_DENOMINATOR;
-            // convert to target decimals
+            minAmountOut = getTokenInUsd(priceOracle, _tokenIn, _amount)
+                * (FEE_DENOMINATOR - maxSwapSlippage) / FEE_DENOMINATOR;
+            if (minAmountOut == 0) {
+                // if we can't get a price, then don't sell
+                return;
+            }
+            // convert to target decimals and downslace from BPS (fee denominator)
             minAmountOut *= 10 ** IERC20Metadata(targetStable).decimals() / FEE_DENOMINATOR;
         }
 
-        uniswap.exactInput(
-            IUniswapV3Router01.ExactInputParams(
-                abi.encodePacked(_tokenIn, _fee, address(weth), feeETHUSD, targetStable),
+        // if we are selling to sUSD, then we need to use the velodrome router because there is liquidity
+        if (targetStable == address(sUsd)) {
+            // sell token to weth on uniswap v3
+            uniswap.exactInput(
+                IUniswapV3Router01.ExactInputParams(
+                    abi.encodePacked(_tokenIn, _fee, address(weth)),
+                    address(this),
+                    block.timestamp,
+                    _amount,
+                    0
+                )
+            );
+            // sell weth to sUSD on velodrome
+            address usdcAddress = address(usdc);
+            IVelodromeRouter.route[] memory path = new IVelodromeRouter.route[](2);
+            path[0] = IVelodromeRouter.route(address(weth), usdcAddress, false);
+            path[1] = IVelodromeRouter.route(usdcAddress, address(sUsd), true);
+            veloRouter.swapExactTokensForTokens(
+                weth.balanceOf(address(this)),
+                minAmountOut,
+                path,
                 address(this),
-                block.timestamp,
-                _amount,
-                minAmountOut
-            )
-        );
+                block.timestamp
+            );
+        } else {
+            // sell token to weth and to target stable, all on uniswap v3
+            uniswap.exactInput(
+                IUniswapV3Router01.ExactInputParams(
+                    abi.encodePacked(_tokenIn, _fee, address(weth), feeETHUSD, targetStable),
+                    address(this),
+                    block.timestamp,
+                    _amount,
+                    minAmountOut
+                )
+            );
+        }
     }
 
     /* ========== KEEP3RS ========== */
@@ -500,8 +538,8 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
             return true;
         }
 
-        uint256 rewards = gauge.claimable_reward(address(this), address(rewardsToken)) -
-            gauge.claimed_reward(address(this), address(rewardsToken));
+        uint256 rewards = gauge.claimable_reward(address(this), address(rewardsToken))
+            - gauge.claimed_reward(address(this), address(rewardsToken));
         if (getTokenInUsd(rewardsOracle, address(rewardsToken), rewards) > minRewardsUsdToTrigger) {
             return true;
         }
@@ -510,16 +548,17 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         return false;
     }
 
-    /// @notice get the price of a token in USD, in BPS
+    /// @notice get the price of a token in USD, in BPS (same value as FEE_DENOMINATOR)
     function getTokenInUsd(address oracleAddress, address token, uint256 rewards) public view returns (uint256) {
-        if (oracleAddress == address(0)) {
+        if (oracleAddress == address(0) || rewards == 0) {
             return 0;
         }
         AggregatorV3Interface oracle = AggregatorV3Interface(oracleAddress);
         (uint80 roundId, int256 answer, , , uint80 answeredInRound) = oracle.latestRoundData();
-        require(answeredInRound <= roundId, "Invalid chainlink round");
-        require(answer > 0, "Invalid chainlink value");
-        return uint256(answer) * rewards * FEE_DENOMINATOR / 10 ** (oracle.decimals() + IERC20Metadata(token).decimals());
+        if (answeredInRound <= roundId && answer > 0) {
+            return uint256(answer) * rewards * FEE_DENOMINATOR
+                / 10 ** (oracle.decimals() + IERC20Metadata(token).decimals());
+        }
     }
 
     // convert our keeper's eth cost into want, we don't need this anymore since we don't use baseStrategy harvestTrigger

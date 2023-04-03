@@ -91,6 +91,7 @@ def test_less_useful_triggers(
     assert tx == False
 
 
+# TODO: change the test after OP rewards are added
 def test_rewards_triggers(
     gov,
     token,
@@ -103,6 +104,7 @@ def test_rewards_triggers(
     amount,
     rewards_token,
     rewards_oracle,
+    gauge,
 ):
     ## deposit to the vault after approving
     startingWhale = token.balanceOf(whale)
@@ -114,11 +116,20 @@ def test_rewards_triggers(
     strategy.harvest({"from": gov})
     chain.sleep(1)
 
+    assert getClaimableRewards(strategy, gauge, rewards_token) == 0
+
     # rewards token is below min amount        # simulate a day of earnings
     chain.sleep(86400)
     chain.mine(1)
+
+    assert getClaimableRewards(strategy, gauge, rewards_token) == 0
     assert strategy.harvestTrigger(0, {"from": gov}) == False
 
     # set lower min rewards trigger
     strategy.setRewardsData(1, 1, {"from": gov})
-    assert strategy.harvestTrigger(0, {"from": gov}) == True
+    assert strategy.harvestTrigger(0, {"from": gov}) == False
+    assert getClaimableRewards(strategy, gauge, rewards_token) == 0
+
+
+def getClaimableRewards(strategy, gauge, rewards_token):
+    return gauge.claimable_reward(strategy, rewards_token) - gauge.claimed_reward(strategy, rewards_token)

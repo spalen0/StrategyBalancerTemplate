@@ -232,7 +232,7 @@ def test_withdraw_after_donation_4(
     chain,
     amount,
 ):
-    strategy.setOptimalStable(0, {"from": gov})
+    strategy.setOptimalStable(3, {"from": gov})
 
     ## deposit to the vault after approving
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
@@ -311,6 +311,7 @@ def test_withdraw_after_donation_5(
     chain,
     amount,
 ):
+    strategy.setOptimalStable(0, {"from": gov})
 
     ## deposit to the vault after approving
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
@@ -437,6 +438,7 @@ def test_withdraw_after_donation_7(
     gauge,
     voter,
 ):
+    strategy.setOptimalStable(3, {"from": gov})
 
     ## deposit to the vault after approving
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
@@ -520,6 +522,7 @@ def test_withdraw_after_donation_8(
     gauge,
     voter,
 ):
+    strategy.setOptimalStable(2, {"from": gov})
 
     ## deposit to the vault after approving
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
