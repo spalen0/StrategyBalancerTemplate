@@ -1,5 +1,5 @@
 import pytest
-from brownie import config, Wei, Contract
+from brownie import config, Wei, Contract, ZERO_ADDRESS
 
 # Snapshots the chain before each test and reverts after test completion.
 @pytest.fixture(autouse=True)
@@ -120,13 +120,9 @@ def pool_token():
     yield Contract("0x8c6f28f2F1A3C87F0f938b96d27520d9751ec8d9")
 
 @pytest.fixture(scope="session")
-def has_rewards():
-    yield True  # false for all ETH
-
-@pytest.fixture(scope="session")
 def rewards_token():  # OP
     yield Contract("0x4200000000000000000000000000000000000042")
-
+    # yield ZERO_ADDRESS # user ZERO_ADDRESS if there are no rewards
 
 # Define any accounts in this section
 # for live testing, governance is the strategist MS; we will update this before we endorse
@@ -168,13 +164,11 @@ def strategist(accounts):
 
 @pytest.fixture(scope="session")
 def contract_name(StrategyClonable):
-    contract_name = StrategyClonable
-    yield contract_name
+    yield StrategyClonable
 
 @pytest.fixture(scope="session")
 def is_clonable():
-    is_clonable = True
-    yield is_clonable
+    yield True
 
 @pytest.fixture(scope="session")
 def sleep_time():
@@ -229,7 +223,6 @@ def strategy(
     strategy_name,
     gauge,
     strategist_ms,
-    has_rewards,
     rewards_token,
     pool_token,
 ):
@@ -243,8 +236,8 @@ def strategy(
         pool_token,
     )
     strategy.setKeeper(keeper, {"from": gov})
-    if has_rewards:
-        strategy.updateRewards(has_rewards, rewards_token, {"from": gov})
+    if rewards_token != ZERO_ADDRESS:
+        strategy.updateRewards(rewards_token, {"from": gov})
         strategy.setFeeCRVETH(3000, {"from": gov})
         strategy.setFeeOPETH(500, {"from": gov})
         strategy.setFeeETHUSD(500, {"from": gov})
