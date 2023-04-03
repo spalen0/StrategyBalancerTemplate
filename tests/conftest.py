@@ -112,13 +112,16 @@ def gauge():
 # curve deposit pool
 @pytest.fixture(scope="module")
 def pool():
-    poolAddress = Contract("0x061b87122ed14b9526a813209c8a59a633257bab")
-    yield poolAddress
+    yield Contract("0x061b87122ed14b9526a813209c8a59a633257bab")
+
+# sUSD token
+@pytest.fixture(scope="module")
+def pool_token():
+    yield Contract("0x8c6f28f2F1A3C87F0f938b96d27520d9751ec8d9")
 
 @pytest.fixture(scope="session")
 def has_rewards():
-    has_rewards = True  # false for all ETH
-    yield has_rewards
+    yield True  # false for all ETH
 
 @pytest.fixture(scope="session")
 def rewards_token():  # OP
@@ -164,8 +167,8 @@ def strategist(accounts):
     yield accounts.at("0xea3a15df68fCdBE44Fdb0DB675B2b3A14a148b26", force=True)
 
 @pytest.fixture(scope="session")
-def contract_name(StrategyCurve3PoolClonable):
-    contract_name = StrategyCurve3PoolClonable
+def contract_name(StrategyClonable):
+    contract_name = StrategyClonable
     yield contract_name
 
 @pytest.fixture(scope="session")
@@ -184,15 +187,6 @@ def is_convex():
 @pytest.fixture(scope="function")
 def vault_address(vault):
     yield vault.address
-
-@pytest.fixture(scope="session")
-def rewards_template():
-    rewards_template = True 
-    yield rewards_template
-
-@pytest.fixture(scope="session")
-def rewards_oracle():  # use this to check our allowances
-    yield Contract("0x0D276FC14719f9292D5C1eA2198673d1f4269246")
 
 # # list any existing strategies here
 # @pytest.fixture(scope="module")
@@ -222,7 +216,7 @@ def vault(pm, gov, rewards, guardian, management, token, chain):
 # replace the first value with the name of your strategy
 @pytest.fixture(scope="function")
 def strategy(
-    StrategyCurve3PoolClonable,
+    StrategyClonable,
     strategist,
     keeper,
     vault,
@@ -237,14 +231,16 @@ def strategy(
     strategist_ms,
     has_rewards,
     rewards_token,
+    pool_token,
 ):
     # make sure to include all constructor parameters needed here
     strategy = strategist.deploy(
-        StrategyCurve3PoolClonable,
+        StrategyClonable,
         vault,
         gauge,
         pool,
         strategy_name,
+        pool_token,
     )
     strategy.setKeeper(keeper, {"from": gov})
     if has_rewards:

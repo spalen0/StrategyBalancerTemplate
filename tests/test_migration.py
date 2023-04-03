@@ -4,7 +4,7 @@ import math
 
 
 def test_migration(
-    StrategyCurve3PoolClonable,
+    StrategyClonable,
     gov,
     token,
     vault,
@@ -20,6 +20,7 @@ def test_migration(
     pool,
     strategy_name,
     gauge,
+    pool_token,
 ):
 
     ## deposit to the vault after approving
@@ -31,11 +32,12 @@ def test_migration(
 
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurve3PoolClonable,
+        StrategyClonable,
         vault,
         gauge,
         pool,
         strategy_name,
+        pool_token,
     )
     strategy.updateRewards(True, rewards_token, {"from": gov})
     strategy.setFeeCRVETH(3000, {"from": gov})
