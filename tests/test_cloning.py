@@ -21,6 +21,7 @@ def test_cloning(
     has_rewards,
     rewards_token,
     is_clonable,
+    pool_token,
 ):
 
     sleep_time = 86_400
@@ -39,11 +40,12 @@ def test_cloning(
             gauge,
             pool,
             strategy_name,
+            pool_token,
             {"from": gov},
         )
 
     ## clone our strategy
-    tx = strategy.cloneCurveOldEth(
+    tx = strategy.cloneStrategy(
         vault,
         strategist,
         rewards,
@@ -51,6 +53,7 @@ def test_cloning(
         gauge,
         pool,
         strategy_name,
+        pool_token,
         {"from": gov},
     )
     newStrategy = contract_name.at(tx.return_value)
@@ -65,12 +68,13 @@ def test_cloning(
             gauge,
             pool,
             strategy_name,
+            pool_token,
             {"from": gov},
         )
 
     ## shouldn't be able to clone a clone
     with brownie.reverts():
-        newStrategy.cloneCurveOldEth(
+        newStrategy.cloneStrategy(
             vault,
             strategist,
             rewards,
@@ -78,6 +82,7 @@ def test_cloning(
             gauge,
             pool,
             strategy_name,
+            pool_token,
             {"from": gov},
         )
 
