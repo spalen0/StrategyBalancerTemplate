@@ -127,7 +127,11 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
 }
 
-abstract contract Strategy3CurveBase is StrategyCurveBase {
+contract StrategyClonable is StrategyCurveBase {
+    using SafeERC20 for IERC20;
+
+    IVelodromeRouter internal constant veloRouter =
+        IVelodromeRouter(0x9c12939390052919aF3155f41Bf4160Fd3666A6f);
     // Swap stuff
     IUniswapV3Router01 internal constant uniswap =
         IUniswapV3Router01(0xE592427A0AEce92De3Edee1F18E0157C05861564); // we use this to sell our bonus token
@@ -142,38 +146,14 @@ abstract contract Strategy3CurveBase is StrategyCurveBase {
         IERC20(0x94b008aA00579c1307B0EF2c499aD98a8ce58e58);
     address internal constant pool3 = 0x1337BedC9D22ecbe766dF105c9623922A27963EC;
 
-    // Curve stuff
+    /* ========== STATE VARIABLES ========== */
+    // these will likely change across different wants.    // Curve stuff
     ICurveFi public curve; ///@notice This is our curve pool specific to this vault
     uint24 public feeCRVETH;
     uint24 public feeOPETH;
     uint24 public feeETHUSD;
     address public targetStable;
 
-    /* ========== MUTATIVE FUNCTIONS ========== */
-
-    function setFeeCRVETH(uint24 _newFeeCRVETH) external onlyVaultManagers {
-        feeCRVETH = _newFeeCRVETH;
-    }
-
-    function setFeeOPETH(uint24 _newFeeOPETH) external onlyVaultManagers {
-        feeOPETH = _newFeeOPETH;
-    }
-
-    function setFeeETHUSD(uint24 _newFeeETHUSD) external onlyVaultManagers {
-        feeETHUSD = _newFeeETHUSD;
-    }
-
-
-}
-
-contract StrategyClonable is Strategy3CurveBase {
-    using SafeERC20 for IERC20;
-
-    IVelodromeRouter internal constant veloRouter =
-        IVelodromeRouter(0x9c12939390052919aF3155f41Bf4160Fd3666A6f);
-
-    /* ========== STATE VARIABLES ========== */
-    // these will likely change across different wants.
 
     // rewards token info. we can have more than 1 reward token but this is rare, so we don't include this in the template
     IERC20 public poolToken;
@@ -585,6 +565,17 @@ contract StrategyClonable is Strategy3CurveBase {
     /* ========== SETTERS ========== */
 
     // These functions are useful for setting parameters of the strategy that may need to be adjusted.
+    function setFeeCRVETH(uint24 _newFeeCRVETH) external onlyVaultManagers {
+        feeCRVETH = _newFeeCRVETH;
+    }
+
+    function setFeeOPETH(uint24 _newFeeOPETH) external onlyVaultManagers {
+        feeOPETH = _newFeeOPETH;
+    }
+
+    function setFeeETHUSD(uint24 _newFeeETHUSD) external onlyVaultManagers {
+        feeETHUSD = _newFeeETHUSD;
+    }
 
     ///@notice Use to add, update or remove reward token
     // OP token: 0x4200000000000000000000000000000000000042
