@@ -66,12 +66,12 @@ abstract contract StrategyCurveBase is BaseStrategy {
         return stratName;
     }
 
-    ///@notice How much want we have staked in Curve's gauge
+    /// @notice How much want we have staked in Curve's gauge
     function stakedBalance() public view returns (uint256) {
         return IERC20(address(gauge)).balanceOf(address(this));
     }
 
-    ///@notice Balance of want sitting in our strategy
+    /// @notice Balance of want sitting in our strategy
     function balanceOfWant() public view returns (uint256) {
         return want.balanceOf(address(this));
     }
@@ -88,7 +88,7 @@ abstract contract StrategyCurveBase is BaseStrategy {
         }
         // Deposit to the gauge if we have any
         uint256 _toInvest = balanceOfWant();
-        if (_toInvest > 0 && _toInvest > _debtOutstanding) {
+        if (_toInvest > _debtOutstanding) {
             gauge.deposit(_toInvest - _debtOutstanding);
         }
     }
@@ -137,7 +137,9 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
     // These functions are useful for setting parameters of the strategy that may need to be adjusted.
 
-    // Set the amount of CRV to be locked in Yearn's veCRV voter from each harvest. Default is 10%.
+    /// @notice Set the amount of CRV to be locked in Yearn's veCRV voter from each harvest. Default is 0%.
+    /// @dev Max value is 10,000 (100%)
+    /// @param _keepCRV The amount of CRV to be locked in Yearn's veCRV voter from each harvest.
     function setKeepCRV(uint256 _keepCRV) external onlyVaultManagers {
         require(_keepCRV <= 10_000);
         keepCRV = _keepCRV;
@@ -159,7 +161,7 @@ abstract contract Strategy3CurveBase is StrategyCurveBase {
     address internal constant pool3 = 0x1337BedC9D22ecbe766dF105c9623922A27963EC;
 
     // Curve stuff
-    ICurveFi public curve; ///@notice This is our curve pool specific to this vault
+    ICurveFi public curve; /// @notice This is our curve pool specific to this vault
     address public targetStable;
 
     // rewards token info. we can have more than 1 reward token but this is rare, so we don't include this in the template
@@ -349,9 +351,9 @@ abstract contract Strategy3CurveBase is StrategyCurveBase {
     /* ========== SETTERS ========== */
     // These functions are useful for setting parameters of the strategy that may need to be adjusted.
 
-    ///@notice Set optimal token to sell harvested funds for depositing to Curve.
-    ///@dev 0 - DAI, 1 - USDC, 2 - USDT, 3 - poolToken. Swaps use Uniswap V3, except for poolToken which uses Velodrome.
-    ///@param _optimal Optimal token to sell harvested funds for depositing to Curve.
+    /// @notice Set optimal token to sell harvested funds for depositing to Curve.
+    /// @dev 0 - DAI, 1 - USDC, 2 - USDT, 3 - poolToken. Swaps use Uniswap V3, except for poolToken which uses Velodrome.
+    /// @param _optimal Optimal token to sell harvested funds for depositing to Curve.
     function setOptimalStable(uint256 _optimal) external onlyVaultManagers {
         if (_optimal == 0) {
             targetStable = address(dai);
@@ -367,10 +369,13 @@ abstract contract Strategy3CurveBase is StrategyCurveBase {
     }
 
     /* ========== VIRTUAL FUNCTIONS ========== */
+    /// @dev Implement sell CRV token in desired way.
     function sellCrv(uint256 _amount) internal virtual;
 
+    /// @dev Implement sell rewards token in desired way.
     function sellRewardToken(uint256 _amount) internal virtual;
 
+    /// @dev Implement check for harvestTrigger if there are enough rewards to sell.
     function hasEnoughRewardsToSell() internal view virtual returns (bool);
 }
 
@@ -492,6 +497,7 @@ contract StrategyClonable is Strategy3CurveBase {
         crvOracle = 0xbD92C6c284271c227a1e0bF1786F468b539f51D9;
         maxSwapSlippage = 1000;
 
+        // approve tokens to swapping routers
         crv.approve(address(uniswap), type(uint256).max);
         weth.approve(address(uniswap), type(uint256).max);
         weth.approve(address(veloRouter), type(uint256).max);
@@ -566,37 +572,44 @@ contract StrategyClonable is Strategy3CurveBase {
 
     /* ========== SETTER FUNCTIONS ========== */
 
-    ///@notice Set chainlink price oracles
-    ///@param _rewardsOracle Address of chainlink oracle for rewards token in dollars.
-    ///@param _crvOracle Address of chainlink oracle for crv token in dollars.
+    /// @notice Set chainlink price oracles
+    /// @param _rewardsOracle Address of chainlink oracle for rewards token in dollars.
+    /// @param _crvOracle Address of chainlink oracle for crv token in dollars.
     function setPriceOracles(address _rewardsOracle, address _crvOracle) external onlyVaultManagers {
         rewardsOracle = _rewardsOracle;
         crvOracle = _crvOracle;
     }
 
+    /// @notice Set uniswap v3 fees for swapping CRV to WETH.
+    /// @param _newFeeCRVETH New fee for swapping CRV to WETH.
     function setFeeCRVETH(uint24 _newFeeCRVETH) external onlyVaultManagers {
         feeCRVETH = _newFeeCRVETH;
     }
 
+    /// @notice Set uniswap v3 fees for swapping OP to WETH.
+    /// @param _newFeeOPETH New fee for swapping OP to WETH.
     function setFeeOPETH(uint24 _newFeeOPETH) external onlyVaultManagers {
         feeOPETH = _newFeeOPETH;
     }
 
+    /// @notice Set uniswap v3 fees for swapping WETH to traget stable.
+    /// @param _newFeeETHUSD New fee for swapping WETH to traget stable.
     function setFeeETHUSD(uint24 _newFeeETHUSD) external onlyVaultManagers {
         feeETHUSD = _newFeeETHUSD;
     }
 
-    ///@notice Set minimal rewards to trigger harvest in dollars in BPS.
-    ///@param _minRewardpoolTokenToTrigger Minimal rewards to trigger harvest in dollars in BPS.
-    ///@param _maxSwapSlippage Max slippage to swap token in BPS.
+    /// @notice Set minimal rewards to trigger harvest in dollars in BPS.
+    /// @param _minRewardpoolTokenToTrigger Minimal rewards to trigger harvest in dollars in BPS.
+    /// @param _maxSwapSlippage Max slippage to swap token in BPS.
     function setRewardsData(uint256 _minRewardpoolTokenToTrigger, uint256 _maxSwapSlippage) external onlyVaultManagers {
         minRewardpoolTokenToTrigger = _minRewardpoolTokenToTrigger;
         require(_maxSwapSlippage < FEE_DENOMINATOR, "Invalid slippage");
         maxSwapSlippage = _maxSwapSlippage;
     }
 
-    ///@notice Use to add, update or remove reward token
-    // OP token: 0x4200000000000000000000000000000000000042
+    /// @notice Use to add, update or remove reward token
+    /// @dev default is OP token: 0x4200000000000000000000000000000000000042
+    /// @param _rewardsToken Address of new reward token.
     function updateRewards(address _rewardsToken)
         external
         onlyGovernance
@@ -615,6 +628,9 @@ contract StrategyClonable is Strategy3CurveBase {
     }
 
     /// @notice get the price of a token in USD, in BPS (same value as FEE_DENOMINATOR)
+    /// @param oracleAddress Address of chainlink oracle for token in dollars.
+    /// @param token Address of token to get price from in USD.
+    /// @param rewards Amount of token that is wanted to get price in USD.
     function getTokenInUsd(address oracleAddress, address token, uint256 rewards) internal view returns (uint256) {
         if (oracleAddress == address(0) || rewards == 0) {
             return 0;
