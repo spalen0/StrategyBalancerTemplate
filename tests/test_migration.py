@@ -4,7 +4,7 @@ import math
 
 
 def test_migration(
-    StrategyCurve3PoolClonable,
+    StrategyClonable,
     gov,
     token,
     vault,
@@ -20,6 +20,7 @@ def test_migration(
     pool,
     strategy_name,
     gauge,
+    pool_token,
 ):
 
     ## deposit to the vault after approving
@@ -31,13 +32,14 @@ def test_migration(
 
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurve3PoolClonable,
+        StrategyClonable,
         vault,
         gauge,
         pool,
+        pool_token,
         strategy_name,
     )
-    strategy.updateRewards(True, rewards_token, {"from": gov})
+    strategy.updateRewards(rewards_token, {"from": gov})
     strategy.setFeeCRVETH(3000, {"from": gov})
     strategy.setFeeOPETH(500, {"from": gov})
     strategy.setFeeETHUSD(500, {"from": gov})
@@ -61,7 +63,8 @@ def test_migration(
     # assert that our old strategy is empty
     updated_total_old = strategy.estimatedTotalAssets()
     assert updated_total_old == 0
-    assert rewards_token.balanceOf(strategy) == 0
+    if rewards_token != ZERO_ADDRESS:
+        assert rewards_token.balanceOf(strategy) == 0
 
     # harvest to get funds back in strategy
     chain.sleep(1)

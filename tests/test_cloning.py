@@ -18,9 +18,9 @@ def test_cloning(
     pool,
     gauge,
     strategy_name,
-    has_rewards,
     rewards_token,
     is_clonable,
+    pool_token,
 ):
 
     sleep_time = 86_400
@@ -38,18 +38,20 @@ def test_cloning(
             keeper,
             gauge,
             pool,
+            pool_token,
             strategy_name,
             {"from": gov},
         )
 
     ## clone our strategy
-    tx = strategy.cloneCurveOldEth(
+    tx = strategy.cloneStrategy(
         vault,
         strategist,
         rewards,
         keeper,
         gauge,
         pool,
+        pool_token,
         strategy_name,
         {"from": gov},
     )
@@ -64,19 +66,21 @@ def test_cloning(
             keeper,
             gauge,
             pool,
+            pool_token,
             strategy_name,
             {"from": gov},
         )
 
     ## shouldn't be able to clone a clone
     with brownie.reverts():
-        newStrategy.cloneCurveOldEth(
+        newStrategy.cloneStrategy(
             vault,
             strategist,
             rewards,
             keeper,
             gauge,
             pool,
+            pool_token,
             strategy_name,
             {"from": gov},
         )
@@ -90,7 +94,7 @@ def test_cloning(
 
     # attach our new strategy
     vault.addStrategy(newStrategy, currentDebt, 0, 2 ** 256 - 1, 1_000, {"from": gov})
-    newStrategy.updateRewards(has_rewards, rewards_token, {"from": gov})
+    newStrategy.updateRewards(rewards_token, {"from": gov})
     newStrategy.setFeeCRVETH(3000, {"from": gov})
     newStrategy.setFeeOPETH(500, {"from": gov})
     newStrategy.setFeeETHUSD(500, {"from": gov})
@@ -108,8 +112,7 @@ def test_cloning(
     assert vault.strategies(strategy)["debtRatio"] == 0
 
     # add rewards token if needed
-    if has_rewards:
-        newStrategy.updateRewards(True, rewards_token, {"from": gov})
+    newStrategy.updateRewards(rewards_token, {"from": gov})
 
     ## deposit to the vault after approving; this is basically just our simple_harvest test
     before_pps = vault.pricePerShare()

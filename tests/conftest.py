@@ -1,5 +1,5 @@
 import pytest
-from brownie import config, Wei, Contract
+from brownie import config, Wei, Contract, ZERO_ADDRESS
 
 # Snapshots the chain before each test and reverts after test completion.
 @pytest.fixture(autouse=True)
@@ -53,8 +53,7 @@ def amount():
 # this is the name we want to give our strategy
 @pytest.fixture(scope="module")
 def strategy_name():
-    strategy_name = "StrategyCurvesUSD"
-    yield strategy_name
+    yield "StrategyCurvesUSD"
 
 
 # Only worry about changing things above this line, unless you want to make changes to the vault or strategy.
@@ -112,18 +111,17 @@ def gauge():
 # curve deposit pool
 @pytest.fixture(scope="module")
 def pool():
-    poolAddress = Contract("0x061b87122ed14b9526a813209c8a59a633257bab")
-    yield poolAddress
+    yield Contract("0x061b87122ed14b9526a813209c8a59a633257bab")
 
-@pytest.fixture(scope="session")
-def has_rewards():
-    has_rewards = True  # false for all ETH
-    yield has_rewards
+# sUSD token
+@pytest.fixture(scope="module")
+def pool_token():
+    yield Contract("0x8c6f28f2F1A3C87F0f938b96d27520d9751ec8d9")
 
 @pytest.fixture(scope="session")
 def rewards_token():  # OP
     yield Contract("0x4200000000000000000000000000000000000042")
-
+    # yield ZERO_ADDRESS # user ZERO_ADDRESS if there are no rewards
 
 # Define any accounts in this section
 # for live testing, governance is the strategist MS; we will update this before we endorse
@@ -164,14 +162,12 @@ def strategist(accounts):
     yield accounts.at("0xea3a15df68fCdBE44Fdb0DB675B2b3A14a148b26", force=True)
 
 @pytest.fixture(scope="session")
-def contract_name(StrategyCurve3PoolClonable):
-    contract_name = StrategyCurve3PoolClonable
-    yield contract_name
+def contract_name(StrategyClonable):
+    yield StrategyClonable
 
 @pytest.fixture(scope="session")
 def is_clonable():
-    is_clonable = True
-    yield is_clonable
+    yield True
 
 @pytest.fixture(scope="session")
 def sleep_time():
@@ -184,15 +180,6 @@ def is_convex():
 @pytest.fixture(scope="function")
 def vault_address(vault):
     yield vault.address
-
-@pytest.fixture(scope="session")
-def rewards_template():
-    rewards_template = True 
-    yield rewards_template
-
-@pytest.fixture(scope="session")
-def rewards_oracle():  # use this to check our allowances
-    yield Contract("0x0D276FC14719f9292D5C1eA2198673d1f4269246")
 
 # # list any existing strategies here
 # @pytest.fixture(scope="module")
@@ -222,7 +209,7 @@ def vault(pm, gov, rewards, guardian, management, token, chain):
 # replace the first value with the name of your strategy
 @pytest.fixture(scope="function")
 def strategy(
-    StrategyCurve3PoolClonable,
+    StrategyClonable,
     strategist,
     keeper,
     vault,
@@ -235,20 +222,21 @@ def strategy(
     strategy_name,
     gauge,
     strategist_ms,
-    has_rewards,
     rewards_token,
+    pool_token,
 ):
     # make sure to include all constructor parameters needed here
     strategy = strategist.deploy(
-        StrategyCurve3PoolClonable,
+        StrategyClonable,
         vault,
         gauge,
         pool,
+        pool_token,
         strategy_name,
     )
     strategy.setKeeper(keeper, {"from": gov})
-    if has_rewards:
-        strategy.updateRewards(has_rewards, rewards_token, {"from": gov})
+    if rewards_token != ZERO_ADDRESS:
+        strategy.updateRewards(rewards_token, {"from": gov})
         strategy.setFeeCRVETH(3000, {"from": gov})
         strategy.setFeeOPETH(500, {"from": gov})
         strategy.setFeeETHUSD(500, {"from": gov})

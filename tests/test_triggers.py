@@ -14,7 +14,6 @@ def test_triggers(
     chain,
     strategist_ms,
     amount,
-    rewards_oracle,
 ):
     ## deposit to the vault after approving
     startingWhale = token.balanceOf(whale)
@@ -103,7 +102,6 @@ def test_rewards_triggers(
     strategist_ms,
     amount,
     rewards_token,
-    rewards_oracle,
     gauge,
 ):
     ## deposit to the vault after approving

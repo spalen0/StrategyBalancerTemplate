@@ -30,33 +30,35 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
     // keepCRV stuff
     uint256 public keepCRV; // the percentage of CRV we re-lock for boost (in basis points)
-    address public constant voter = 0xea3a15df68fCdBE44Fdb0DB675B2b3A14a148b26; // Optimism SMS
+
+    address internal constant voter = 0xea3a15df68fCdBE44Fdb0DB675B2b3A14a148b26; // Optimism SMS
+    IMinter internal constant mintr = IMinter(0xabC000d88f23Bb45525E447528DBF656A9D55bf5);
     uint256 internal constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in basis points
-
-    // Swap stuff
-    IUniswapV3Router01 internal constant uniswap =
-        IUniswapV3Router01(0xE592427A0AEce92De3Edee1F18E0157C05861564); // we use this to sell our bonus token
-
-    IERC20 internal constant sUsd =
-        IERC20(0x8c6f28f2F1A3C87F0f938b96d27520d9751ec8d9);
-    IERC20 internal constant crv =
-        IERC20(0x0994206dfE8De6Ec6920FF4D779B0d950605Fb53);
-    IERC20 internal constant weth =
-        IERC20(0x4200000000000000000000000000000000000006);
-    IERC20 internal constant dai =
-        IERC20(0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1);
-    IERC20 internal constant usdc =
-        IERC20(0x7F5c764cBc14f9669B88837ca1490cCa17c31607);
-    IERC20 internal constant usdt =
-        IERC20(0x94b008aA00579c1307B0EF2c499aD98a8ce58e58);
-    IMinter public constant mintr = IMinter(0xabC000d88f23Bb45525E447528DBF656A9D55bf5);
-    address internal constant pool3 = 0x1337BedC9D22ecbe766dF105c9623922A27963EC;
+    IERC20 internal constant crv = IERC20(0x0994206dfE8De6Ec6920FF4D779B0d950605Fb53);
 
     string internal stratName;
 
     /* ========== CONSTRUCTOR ========== */
 
     constructor(address _vault) BaseStrategy(_vault) {}
+
+    function initializeStrat(address _gauge, string memory _name) internal virtual {
+        // You can set these parameters on deployment to whatever you want
+        maxReportDelay = 100 days; // 100 days in seconds
+        minReportDelay = 21 days; // 21 days in seconds
+        healthCheck = 0x3d8F58774611676fd196D26149C71a9142C45296; // health.ychad.eth
+        creditThreshold = 500 * 1e18;
+        keepCRV = 0; // default of 0%
+
+        // these are our standard approvals. want = Curve LP token
+        want.approve(address(_gauge), type(uint256).max);
+
+        // set our curve gauge contract
+        gauge = IGauge(_gauge);
+
+        // set our strategy's name
+        stratName = _name;
+    }
 
     /* ========== VIEWS ========== */
 
@@ -143,200 +145,49 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
 }
 
-contract StrategyCurve3PoolClonable is StrategyCurveBase {
+abstract contract Strategy3CurveBase is StrategyCurveBase {
     using SafeERC20 for IERC20;
 
-    IVelodromeRouter internal constant veloRouter =
-        IVelodromeRouter(0x9c12939390052919aF3155f41Bf4160Fd3666A6f);
-
-    /* ========== STATE VARIABLES ========== */
-    // these will likely change across different wants.
+    IERC20 internal constant weth =
+        IERC20(0x4200000000000000000000000000000000000006);
+    IERC20 internal constant dai =
+        IERC20(0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1);
+    IERC20 internal constant usdc =
+        IERC20(0x7F5c764cBc14f9669B88837ca1490cCa17c31607);
+    IERC20 internal constant usdt =
+        IERC20(0x94b008aA00579c1307B0EF2c499aD98a8ce58e58);
+    address internal constant pool3 = 0x1337BedC9D22ecbe766dF105c9623922A27963EC;
 
     // Curve stuff
     ICurveFi public curve; ///@notice This is our curve pool specific to this vault
-    uint24 public feeCRVETH;
-    uint24 public feeOPETH;
-    uint24 public feeETHUSD;
     address public targetStable;
 
     // rewards token info. we can have more than 1 reward token but this is rare, so we don't include this in the template
+    IERC20 public poolToken;
     IERC20 public rewardsToken;
-    bool public hasRewards;
-    uint256 public minRewardsUsdToTrigger;
-    uint256 public maxSwapSlippage;
-    address public rewardsOracle;
-    address public crvOracle;
 
-    // check for cloning
-    bool internal isOriginal = true;
-
-    /* ========== CONSTRUCTOR ========== */
-
-    constructor(
-        address _vault,
+    function initializeStrat(
         address _gauge,
         address _curvePool,
+        address _poolToken,
         string memory _name
-    ) StrategyCurveBase(_vault) {
-        _initializeStrat(_gauge, _curvePool, _name);
-    }
-
-    /* ========== CLONING ========== */
-
-    event Cloned(address indexed clone);
-
-    // we use this to clone our original strategy to other vaults
-    function cloneCurveOldEth(
-        address _vault,
-        address _strategist,
-        address _rewards,
-        address _keeper,
-        address _gauge,
-        address _curvePool,
-        string memory _name
-    ) external returns (address payable newStrategy) {
-        require(isOriginal);
-        // Copied from https://github.com/optionality/clone-factory/blob/master/contracts/CloneFactory.sol
-        bytes20 addressBytes = bytes20(address(this));
-        assembly {
-            // EIP-1167 bytecode
-            let clone_code := mload(0x40)
-            mstore(
-                clone_code,
-                0x3d602d80600a3d3981f3363d3d373d3d3d363d73000000000000000000000000
-            )
-            mstore(add(clone_code, 0x14), addressBytes)
-            mstore(
-                add(clone_code, 0x28),
-                0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000
-            )
-            newStrategy := create(0, clone_code, 0x37)
-        }
-
-        StrategyCurve3PoolClonable(newStrategy).initialize(
-            _vault,
-            _strategist,
-            _rewards,
-            _keeper,
-            _gauge,
-            _curvePool,
-            _name
-        );
-
-        emit Cloned(newStrategy);
-    }
-
-    // this will only be called by the clone function above
-    function initialize(
-        address _vault,
-        address _strategist,
-        address _rewards,
-        address _keeper,
-        address _gauge,
-        address _curvePool,
-        string memory _name
-    ) public {
-        _initialize(_vault, _strategist, _rewards, _keeper);
-        _initializeStrat(_gauge, _curvePool, _name);
-    }
-
-    // this is called by our original strategy, as well as any clones
-    function _initializeStrat(
-        address _gauge,
-        address _curvePool,
-        string memory _name
-    ) internal {
-        // make sure that we haven't initialized this before
-        require(address(curve) == address(0)); // already initialized.
-
-        // You can set these parameters on deployment to whatever you want
-        maxReportDelay = 100 days; // 100 days in seconds
-        minReportDelay = 21 days; // 21 days in seconds
-        healthCheck = 0x3d8F58774611676fd196D26149C71a9142C45296; // health.ychad.eth
-        creditThreshold = 500 * 1e18;
-        keepCRV = 0; // default of 0%
-
-        // set uniswap v3 fees
-        feeCRVETH = 3000;
-        feeOPETH = 500;
-        feeETHUSD = 500;
-
-        // define minimal rewards to trigger harvest in dollars in BPS
-        minRewardsUsdToTrigger = 50 * FEE_DENOMINATOR;
-        rewardsOracle = 0x0D276FC14719f9292D5C1eA2198673d1f4269246;
-        crvOracle = 0xbD92C6c284271c227a1e0bF1786F468b539f51D9;
-        maxSwapSlippage = 1000;
-
-        // these are our standard approvals. want = Curve LP token
-        want.approve(address(_gauge), type(uint256).max);
-        crv.approve(address(uniswap), type(uint256).max);
-        weth.approve(address(uniswap), type(uint256).max);
-
+    ) internal virtual { 
+        super.initializeStrat(_gauge, _name);
+        // set curve pool token, addinal to 3pool token
+        poolToken = IERC20(_poolToken);
+    
+        // approve adding stables to 3pool
         dai.approve(pool3, type(uint256).max);
         usdt.safeApprove(pool3, type(uint256).max);
         usdc.approve(pool3, type(uint256).max);
 
-        weth.approve(address(veloRouter), type(uint256).max);
-
         // this is the pool specific to this vault
         curve = ICurveFi(_curvePool);
-        sUsd.approve(_curvePool, type(uint256).max);
+        poolToken.safeApprove(_curvePool, type(uint256).max);
         IERC20(pool3).approve(_curvePool, type(uint256).max);
-
-        // set our curve gauge contract
-        gauge = IGauge(_gauge);
-
-        // set our strategy's name
-        stratName = _name;
 
         // set strategy default traget stable
         targetStable = address(usdt);
-    }
-
-    /* ========== MUTATIVE FUNCTIONS ========== */
-
-    function setFeeCRVETH(uint24 _newFeeCRVETH) external onlyVaultManagers {
-        feeCRVETH = _newFeeCRVETH;
-    }
-
-    function setFeeOPETH(uint24 _newFeeOPETH) external onlyVaultManagers {
-        feeOPETH = _newFeeOPETH;
-    }
-
-    function setFeeETHUSD(uint24 _newFeeETHUSD) external onlyVaultManagers {
-        feeETHUSD = _newFeeETHUSD;
-    }
-
-    ///@notice Set minimal rewards to trigger harvest in dollars in BPS.
-    ///@param _minRewardsUsdToTrigger Minimal rewards to trigger harvest in dollars in BPS.
-    ///@param _maxSwapSlippage Max slippage to swap token in BPS.
-    function setRewardsData(uint256 _minRewardsUsdToTrigger, uint256 _maxSwapSlippage) external onlyVaultManagers {
-        minRewardsUsdToTrigger = _minRewardsUsdToTrigger;
-        require(_maxSwapSlippage < FEE_DENOMINATOR, "Invalid slippage");
-        maxSwapSlippage = _maxSwapSlippage;
-    }
-
-    ///@notice Set chainlink price oracles
-    ///@param _rewardsOracle Address of chainlink oracle for rewards token in dollars.
-    ///@param _crvOracle Address of chainlink oracle for crv token in dollars.
-    function setPriceOracles(address _rewardsOracle, address _crvOracle) external onlyVaultManagers {
-        rewardsOracle = _rewardsOracle;
-        crvOracle = _crvOracle;
-    }
-
-    ///@notice Set optimal token to sell harvested funds for depositing to Curve.
-    function setOptimalStable(uint256 _optimal) external onlyVaultManagers {
-        if (_optimal == 0) {
-            targetStable = address(dai);
-        } else if (_optimal == 1) {
-            targetStable = address(usdc);
-        } else if (_optimal == 2) {
-            targetStable = address(usdt);
-        } else if (_optimal == 3) {
-            targetStable = address(sUsd);
-        } else {
-            revert("incorrect token");
-        }
     }
 
     function prepareReturn(uint256 _debtOutstanding)
@@ -368,20 +219,19 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         }
 
         // claim and sell our rewards if we have them
-        if (hasRewards) {
+        if (address(rewardsToken) != address(0)) {
             gauge.claim_rewards();
             uint256 _rewardsBalance = rewardsToken.balanceOf(address(this));
             if (_rewardsBalance > 0) {
-                sellTokens(address(rewardsToken), feeOPETH, _rewardsBalance, rewardsOracle);
+                sellRewardToken(_rewardsBalance);
             }
         }
 
         if (_crvBalance > 1e17) {
-            // don't want to swap dust or we might revert
-            sellTokens(address(crv), feeCRVETH, _crvBalance, crvOracle);
+            sellCrv(_crvBalance);
         }
 
-        if (targetStable != address(sUsd)) {
+        if (targetStable != address(poolToken)) {
             // check for balances of tokens to deposit
             uint256 _daiBalance = dai.balanceOf(address(this));
             uint256 _usdcBalance = usdc.balanceOf(address(this));
@@ -398,9 +248,9 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
                 curve.add_liquidity([0, pool3Balance], 0);
             }
         } else {
-            uint256 sUsdBalance = sUsd.balanceOf(address(this));
-            if (sUsdBalance > 0) {
-                curve.add_liquidity([sUsdBalance, 0], 0);
+            uint256 poolTokenBalance = poolToken.balanceOf(address(this));
+            if (poolTokenBalance > 0) {
+                curve.add_liquidity([poolTokenBalance, 0], 0);
             }
         }
 
@@ -447,58 +297,6 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         }
     }
 
-    function sellTokens(address _tokenIn, uint24 _fee, uint256 _amount, address priceOracle) internal {
-        uint256 minAmountOut = 0;
-        if (priceOracle != address(0)) {
-            // amountInUsd * (1 - slippage)%
-            minAmountOut = getTokenInUsd(priceOracle, _tokenIn, _amount)
-                * (FEE_DENOMINATOR - maxSwapSlippage) / FEE_DENOMINATOR;
-            if (minAmountOut == 0) {
-                // if we can't get a price, then don't sell
-                return;
-            }
-            // convert to target decimals and downslace from BPS (fee denominator)
-            minAmountOut *= 10 ** IERC20Metadata(targetStable).decimals() / FEE_DENOMINATOR;
-        }
-
-        // if we are selling to sUSD, then we need to use the velodrome router because there is liquidity
-        if (targetStable == address(sUsd)) {
-            // sell token to weth on uniswap v3
-            uniswap.exactInput(
-                IUniswapV3Router01.ExactInputParams(
-                    abi.encodePacked(_tokenIn, _fee, address(weth)),
-                    address(this),
-                    block.timestamp,
-                    _amount,
-                    0
-                )
-            );
-            // sell weth to sUSD on velodrome
-            address usdcAddress = address(usdc);
-            IVelodromeRouter.route[] memory path = new IVelodromeRouter.route[](2);
-            path[0] = IVelodromeRouter.route(address(weth), usdcAddress, false);
-            path[1] = IVelodromeRouter.route(usdcAddress, address(sUsd), true);
-            veloRouter.swapExactTokensForTokens(
-                weth.balanceOf(address(this)),
-                minAmountOut,
-                path,
-                address(this),
-                block.timestamp
-            );
-        } else {
-            // sell token to weth and to target stable, all on uniswap v3
-            uniswap.exactInput(
-                IUniswapV3Router01.ExactInputParams(
-                    abi.encodePacked(_tokenIn, _fee, address(weth), feeETHUSD, targetStable),
-                    address(this),
-                    block.timestamp,
-                    _amount,
-                    minAmountOut
-                )
-            );
-        }
-    }
-
     /* ========== KEEP3RS ========== */
     // use this to determine when to harvest
     function harvestTrigger(uint256 callCostinEth)
@@ -537,28 +335,7 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         if (vault.creditAvailable() > creditThreshold) {
             return true;
         }
-
-        uint256 rewards = gauge.claimable_reward(address(this), address(rewardsToken))
-            - gauge.claimed_reward(address(this), address(rewardsToken));
-        if (getTokenInUsd(rewardsOracle, address(rewardsToken), rewards) > minRewardsUsdToTrigger) {
-            return true;
-        }
-
-        // otherwise, we don't harvest
-        return false;
-    }
-
-    /// @notice get the price of a token in USD, in BPS (same value as FEE_DENOMINATOR)
-    function getTokenInUsd(address oracleAddress, address token, uint256 rewards) public view returns (uint256) {
-        if (oracleAddress == address(0) || rewards == 0) {
-            return 0;
-        }
-        AggregatorV3Interface oracle = AggregatorV3Interface(oracleAddress);
-        (uint80 roundId, int256 answer, , , uint80 answeredInRound) = oracle.latestRoundData();
-        if (answeredInRound <= roundId && answer > 0) {
-            return uint256(answer) * rewards * FEE_DENOMINATOR
-                / 10 ** (oracle.decimals() + IERC20Metadata(token).decimals());
-        }
+        return hasEnoughRewardsToSell();
     }
 
     // convert our keeper's eth cost into want, we don't need this anymore since we don't use baseStrategy harvestTrigger
@@ -570,12 +347,257 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
     {}
 
     /* ========== SETTERS ========== */
-
     // These functions are useful for setting parameters of the strategy that may need to be adjusted.
+
+    ///@notice Set optimal token to sell harvested funds for depositing to Curve.
+    ///@dev 0 - DAI, 1 - USDC, 2 - USDT, 3 - poolToken. Swaps use Uniswap V3, except for poolToken which uses Velodrome.
+    ///@param _optimal Optimal token to sell harvested funds for depositing to Curve.
+    function setOptimalStable(uint256 _optimal) external onlyVaultManagers {
+        if (_optimal == 0) {
+            targetStable = address(dai);
+        } else if (_optimal == 1) {
+            targetStable = address(usdc);
+        } else if (_optimal == 2) {
+            targetStable = address(usdt);
+        } else if (_optimal == 3) {
+            targetStable = address(poolToken);
+        } else {
+            revert("incorrect token");
+        }
+    }
+
+    /* ========== VIRTUAL FUNCTIONS ========== */
+    function sellCrv(uint256 _amount) internal virtual;
+
+    function sellRewardToken(uint256 _amount) internal virtual;
+
+    function hasEnoughRewardsToSell() internal view virtual returns (bool);
+}
+
+contract StrategyClonable is Strategy3CurveBase {
+    using SafeERC20 for IERC20;
+
+    IUniswapV3Router01 internal constant uniswap =
+        IUniswapV3Router01(0xE592427A0AEce92De3Edee1F18E0157C05861564); // we use this to sell our bonus token
+    IVelodromeRouter internal constant veloRouter =
+        IVelodromeRouter(0x9c12939390052919aF3155f41Bf4160Fd3666A6f);
+
+    // swap related
+    uint24 public feeCRVETH;
+    uint24 public feeOPETH;
+    uint24 public feeETHUSD;
+    uint256 public maxSwapSlippage;
+    address public rewardsOracle;
+    address public crvOracle;
+
+    uint256 public minRewardpoolTokenToTrigger;
+
+    // check for cloning
+    bool internal isOriginal = true;
+
+    /* ========== CONSTRUCTOR ========== */
+
+    constructor(
+        address _vault,
+        address _gauge,
+        address _curvePool,
+        address _poolToken,
+        string memory _name
+    ) StrategyCurveBase(_vault) {
+        initializeStrat(_gauge, _curvePool, _poolToken, _name);
+    }
+
+    /* ========== CLONING ========== */
+
+    event Cloned(address indexed clone);
+
+    // we use this to clone our original strategy to other vaults
+    function cloneStrategy(
+        address _vault,
+        address _strategist,
+        address _rewards,
+        address _keeper,
+        address _gauge,
+        address _curvePool,
+        address _poolToken,
+        string memory _name
+    ) external returns (address payable newStrategy) {
+        require(isOriginal);
+        // Copied from https://github.com/optionality/clone-factory/blob/master/contracts/CloneFactory.sol
+        bytes20 addressBytes = bytes20(address(this));
+        assembly {
+            // EIP-1167 bytecode
+            let clone_code := mload(0x40)
+            mstore(
+                clone_code,
+                0x3d602d80600a3d3981f3363d3d373d3d3d363d73000000000000000000000000
+            )
+            mstore(add(clone_code, 0x14), addressBytes)
+            mstore(
+                add(clone_code, 0x28),
+                0x5af43d82803e903d91602b57fd5bf30000000000000000000000000000000000
+            )
+            newStrategy := create(0, clone_code, 0x37)
+        }
+
+        StrategyClonable(newStrategy).initialize(
+            _vault,
+            _strategist,
+            _rewards,
+            _keeper,
+            _gauge,
+            _curvePool,
+            _poolToken,
+            _name
+        );
+
+        emit Cloned(newStrategy);
+    }
+
+    // this will only be called by the clone function above
+    function initialize(
+        address _vault,
+        address _strategist,
+        address _rewards,
+        address _keeper,
+        address _gauge,
+        address _curvePool,
+        address _poolToken,
+        string memory _name
+    ) public {
+        _initialize(_vault, _strategist, _rewards, _keeper);
+        initializeStrat(_gauge, _curvePool, _poolToken, _name);
+    }
+
+    // this is called by our original strategy, as well as any clones
+    function initializeStrat(
+        address _gauge,
+        address _curvePool,
+        address _poolToken,
+        string memory _name
+    ) internal override {
+        // make sure that we haven't initialized this before
+        require(address(curve) == address(0)); // already initialized.
+
+        super.initializeStrat(_gauge, _curvePool, _poolToken, _name);
+
+        // set uniswap v3 fees
+        feeCRVETH = 3000;
+        feeOPETH = 500;
+        feeETHUSD = 500;
+
+        // define minimal rewards to trigger harvest in dollars in BPS
+        minRewardpoolTokenToTrigger = 50 * FEE_DENOMINATOR;
+        rewardsOracle = 0x0D276FC14719f9292D5C1eA2198673d1f4269246;
+        crvOracle = 0xbD92C6c284271c227a1e0bF1786F468b539f51D9;
+        maxSwapSlippage = 1000;
+
+        crv.approve(address(uniswap), type(uint256).max);
+        weth.approve(address(uniswap), type(uint256).max);
+        weth.approve(address(veloRouter), type(uint256).max);
+    }
+
+
+    /* ========== IMPL VIRTUAL FUNCTIONS ========== */
+    function sellRewardToken(uint256 _amount) internal override {
+        sellTokens(address(rewardsToken), feeOPETH, _amount, rewardsOracle);
+    }
+
+    function sellCrv(uint256 _amount) internal override {
+        sellTokens(address(crv), feeCRVETH, _amount, crvOracle);
+    }
+
+    function sellTokens(address _tokenIn, uint24 _fee, uint256 _amount, address priceOracle) internal {
+        uint256 minAmountOut = 0;
+        if (priceOracle != address(0)) {
+            // amountInUsd * (1 - slippage)%
+            minAmountOut = getTokenInUsd(priceOracle, _tokenIn, _amount)
+                * (FEE_DENOMINATOR - maxSwapSlippage) / FEE_DENOMINATOR;
+            if (minAmountOut == 0) {
+                // if we can't get a price, then don't sell
+                return;
+            }
+            // convert to target decimals and downslace from BPS (fee denominator)
+            minAmountOut *= 10 ** IERC20Metadata(targetStable).decimals() / FEE_DENOMINATOR;
+        }
+
+        // if we are selling to poolToken, then we need to use the velodrome router because there is liquidity
+        if (targetStable == address(poolToken)) {
+            // sell token to weth on uniswap v3
+            uniswap.exactInput(
+                IUniswapV3Router01.ExactInputParams(
+                    abi.encodePacked(_tokenIn, _fee, address(weth)),
+                    address(this),
+                    block.timestamp,
+                    _amount,
+                    0
+                )
+            );
+            // sell weth to poolToken on velodrome
+            address usdcAddress = address(usdc);
+            IVelodromeRouter.route[] memory path = new IVelodromeRouter.route[](2);
+            path[0] = IVelodromeRouter.route(address(weth), usdcAddress, false);
+            path[1] = IVelodromeRouter.route(usdcAddress, address(poolToken), true);
+            veloRouter.swapExactTokensForTokens(
+                weth.balanceOf(address(this)),
+                minAmountOut,
+                path,
+                address(this),
+                block.timestamp
+            );
+        } else {
+            // sell token to weth and to target stable, all on uniswap v3
+            uniswap.exactInput(
+                IUniswapV3Router01.ExactInputParams(
+                    abi.encodePacked(_tokenIn, _fee, address(weth), feeETHUSD, targetStable),
+                    address(this),
+                    block.timestamp,
+                    _amount,
+                    minAmountOut
+                )
+            );
+        }
+    }
+
+    function hasEnoughRewardsToSell() internal override view returns (bool) {
+        return getTokenInUsd(rewardsOracle, address(poolToken), poolToken.balanceOf(address(this)))
+            > minRewardpoolTokenToTrigger;
+    }
+
+    /* ========== SETTER FUNCTIONS ========== */
+
+    ///@notice Set chainlink price oracles
+    ///@param _rewardsOracle Address of chainlink oracle for rewards token in dollars.
+    ///@param _crvOracle Address of chainlink oracle for crv token in dollars.
+    function setPriceOracles(address _rewardsOracle, address _crvOracle) external onlyVaultManagers {
+        rewardsOracle = _rewardsOracle;
+        crvOracle = _crvOracle;
+    }
+
+    function setFeeCRVETH(uint24 _newFeeCRVETH) external onlyVaultManagers {
+        feeCRVETH = _newFeeCRVETH;
+    }
+
+    function setFeeOPETH(uint24 _newFeeOPETH) external onlyVaultManagers {
+        feeOPETH = _newFeeOPETH;
+    }
+
+    function setFeeETHUSD(uint24 _newFeeETHUSD) external onlyVaultManagers {
+        feeETHUSD = _newFeeETHUSD;
+    }
+
+    ///@notice Set minimal rewards to trigger harvest in dollars in BPS.
+    ///@param _minRewardpoolTokenToTrigger Minimal rewards to trigger harvest in dollars in BPS.
+    ///@param _maxSwapSlippage Max slippage to swap token in BPS.
+    function setRewardsData(uint256 _minRewardpoolTokenToTrigger, uint256 _maxSwapSlippage) external onlyVaultManagers {
+        minRewardpoolTokenToTrigger = _minRewardpoolTokenToTrigger;
+        require(_maxSwapSlippage < FEE_DENOMINATOR, "Invalid slippage");
+        maxSwapSlippage = _maxSwapSlippage;
+    }
 
     ///@notice Use to add, update or remove reward token
     // OP token: 0x4200000000000000000000000000000000000042
-    function updateRewards(bool _hasRewards, address _rewardsToken)
+    function updateRewards(address _rewardsToken)
         external
         onlyGovernance
     {
@@ -583,14 +605,25 @@ contract StrategyCurve3PoolClonable is StrategyCurveBase {
         if (address(rewardsToken) != address(0)) {
             rewardsToken.safeApprove(address(uniswap), uint256(0));
         }
-        if (_hasRewards == false) {
-            hasRewards = false;
+        if (_rewardsToken == address(0)) {
             rewardsToken = IERC20(address(0));
         } else {
             // approve, setup our path, and turn on rewards
             rewardsToken = IERC20(_rewardsToken);
             rewardsToken.safeApprove(address(uniswap), type(uint256).max);
-            hasRewards = true;
+        }
+    }
+
+    /// @notice get the price of a token in USD, in BPS (same value as FEE_DENOMINATOR)
+    function getTokenInUsd(address oracleAddress, address token, uint256 rewards) internal view returns (uint256) {
+        if (oracleAddress == address(0) || rewards == 0) {
+            return 0;
+        }
+        AggregatorV3Interface oracle = AggregatorV3Interface(oracleAddress);
+        (uint80 roundId, int256 answer, , , uint80 answeredInRound) = oracle.latestRoundData();
+        if (answeredInRound <= roundId && answer > 0) {
+            return uint256(answer) * rewards * FEE_DENOMINATOR
+                / 10 ** (oracle.decimals() + IERC20Metadata(token).decimals());
         }
     }
 }
