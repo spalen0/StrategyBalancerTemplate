@@ -95,6 +95,8 @@ def test_setters(
         strategy.setRewardsData(1, 1, {"from": whale})
     with brownie.reverts():
         strategy.setPriceOracles(ZERO_ADDRESS, ZERO_ADDRESS, {"from": whale})
+    with brownie.reverts():
+        strategy.setFeeEthPooltoken(0, {"from": whale})
     if is_convex:
         with brownie.reverts():
             strategy.setKeep(10_001, 0, gov, {"from": gov})

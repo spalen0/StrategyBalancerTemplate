@@ -394,6 +394,7 @@ contract StrategyClonable is Strategy3CurveBase {
     uint256 public maxSwapSlippage;
     address public rewardsOracle;
     address public crvOracle;
+    uint24 public feeEthPooltoken; // set 0 to use velodrome
 
     uint256 public minRewardpoolTokenToTrigger;
 
@@ -529,28 +530,7 @@ contract StrategyClonable is Strategy3CurveBase {
 
         // if we are selling to poolToken, then we need to use the velodrome router because there is liquidity
         if (targetStable == address(poolToken)) {
-            // sell token to weth on uniswap v3
-            uniswap.exactInput(
-                IUniswapV3Router01.ExactInputParams(
-                    abi.encodePacked(_tokenIn, _fee, address(weth)),
-                    address(this),
-                    block.timestamp,
-                    _amount,
-                    0
-                )
-            );
-            // sell weth to poolToken on velodrome
-            address usdcAddress = address(usdc);
-            IVelodromeRouter.route[] memory path = new IVelodromeRouter.route[](2);
-            path[0] = IVelodromeRouter.route(address(weth), usdcAddress, false);
-            path[1] = IVelodromeRouter.route(usdcAddress, address(poolToken), true);
-            veloRouter.swapExactTokensForTokens(
-                weth.balanceOf(address(this)),
-                minAmountOut,
-                path,
-                address(this),
-                block.timestamp
-            );
+            sellPoolToken(_tokenIn, _fee, _amount, minAmountOut);
         } else {
             // sell token to weth and to target stable, all on uniswap v3
             uniswap.exactInput(
@@ -565,8 +545,46 @@ contract StrategyClonable is Strategy3CurveBase {
         }
     }
 
+    function sellPoolToken(address _tokenIn, uint24 _fee, uint256 _amount, uint256 _minAmountOut) internal {
+        // sell token to weth on uniswap v3
+        uniswap.exactInput(
+            IUniswapV3Router01.ExactInputParams(
+                abi.encodePacked(_tokenIn, _fee, address(weth)),
+                address(this),
+                block.timestamp,
+                _amount,
+                0
+            )
+        );
+        if (feeEthPooltoken == 0) {
+            // sell weth to poolToken on velodrome, if no uniswap v3 fee is set
+            address usdcAddress = address(usdc);
+            IVelodromeRouter.route[] memory path = new IVelodromeRouter.route[](2);
+            path[0] = IVelodromeRouter.route(address(weth), usdcAddress, false);
+            path[1] = IVelodromeRouter.route(usdcAddress, address(poolToken), true);
+            veloRouter.swapExactTokensForTokens(
+                weth.balanceOf(address(this)),
+                _minAmountOut,
+                path,
+                address(this),
+                block.timestamp
+            );
+        } else {
+            // we sell weth to poolToken on uniswap v3
+            uniswap.exactInput(
+                IUniswapV3Router01.ExactInputParams(
+                    abi.encodePacked(address(weth), feeEthPooltoken, address(poolToken)),
+                    address(this),
+                    block.timestamp,
+                    weth.balanceOf(address(this)),
+                    0
+                )
+            );
+        }
+    }
+
     function hasEnoughRewardsToSell() internal override view returns (bool) {
-        return getTokenInUsd(rewardsOracle, address(poolToken), poolToken.balanceOf(address(this)))
+        return getTokenInUsd(rewardsOracle, address(rewardsToken), rewardsToken.balanceOf(address(this)))
             > minRewardpoolTokenToTrigger;
     }
 
@@ -596,6 +614,12 @@ contract StrategyClonable is Strategy3CurveBase {
     /// @param _newFeeETHUSD New fee for swapping WETH to traget stable.
     function setFeeETHUSD(uint24 _newFeeETHUSD) external onlyVaultManagers {
         feeETHUSD = _newFeeETHUSD;
+    }
+
+    /// @notice Set uniswap v3 fees for swapping WETH to poolToken. If the value is 0, then it uses velodrome router.
+    /// @param _newfeeEthPooltoken New fee for swapping WETH to poolToken. Set to 0 to use velodrome router.
+    function setFeeEthPooltoken(uint24 _newfeeEthPooltoken) external onlyVaultManagers {
+        feeEthPooltoken = _newfeeEthPooltoken;
     }
 
     /// @notice Set minimal rewards to trigger harvest in dollars in BPS.
