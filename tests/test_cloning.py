@@ -98,6 +98,7 @@ def test_cloning(
     newStrategy.setFeeCRVETH(3000, {"from": gov})
     newStrategy.setFeeOPETH(500, {"from": gov})
     newStrategy.setFeeETHUSD(500, {"from": gov})
+    newStrategy.setFeeEthPooltoken(100, {"from": gov})
 
     if vault.address == ZERO_ADDRESS:
         assert vault.withdrawalQueue(1) == newStrategy
